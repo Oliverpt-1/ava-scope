@@ -1,0 +1,288 @@
+import axios, { AxiosError } from 'axios';
+
+export interface ContractCallMetrics {
+  total: number | string; // Will be count of txs with input data in last block
+  read: number | string;
+  write: number | string;
+}
+
+export interface BlockProductionMetrics {
+  latestBlock: number | string;
+  avgBlockTime: number | string;
+  txCount: number | string;
+  blockSize: number | string;
+  gasUsedLatestBlock?: number | string; // Gas used in the latest block
+}
+
+export interface SubnetMetrics {
+  validatorHealth: string;
+  uptime: number | string;
+  mempoolSize: number | string;
+  tps: string; // To accommodate formatted string like "12.3 TPS"
+  gasUsage: string; // Current gas price in Gwei (e.g., "23.5 Gwei")
+  contractCalls: ContractCallMetrics;
+  blockProduction: BlockProductionMetrics;
+}
+
+interface TransactionInput {
+  input: string;
+  // Potentially other fields if needed later, like 'to', 'from'
+}
+
+interface BlockDetails {
+  number: number;
+  timestamp: number;
+  transactions: TransactionInput[]; // Modified to hold transaction inputs
+  transactionsCount: number; // This will be block.transactions.length from original eth_getBlockByNumber
+  sizeBytes: number;
+  gasUsed: number; // Added gasUsed for the block
+}
+
+// Helper to create a more robust RPC URL for health and metrics endpoints
+const getBaseUrl = (rpcUrl: string): string => {
+  try {
+    const url = new URL(rpcUrl);
+    // For /ext/health or /ext/metrics, we usually want the base (e.g., http://host:port)
+    // If the rpcUrl itself is already the base for these, this is fine.
+    // If rpcUrl includes a path (like /ext/bc/C/rpc), we might need to adjust
+    // For now, let's assume it's the base or /ext/* paths are relative to it.
+    // A common pattern is that /ext/health is on the same host/port as the EVM RPC endpoint.
+    return `${url.protocol}//${url.host}`;
+  } catch (e) {
+    console.warn(`Invalid RPC URL format: ${rpcUrl}. Falling back to using it as is.`);
+    return rpcUrl; // Fallback, might not work for all /ext/* paths
+  }
+};
+
+/**
+ * Fetches raw Prometheus metrics from the /ext/metrics endpoint.
+ * @param rpcUrl The base RPC URL of the subnet node.
+ * @returns A promise that resolves to the raw Prometheus metrics text, or null if an error occurs.
+ */
+const fetchPrometheusMetrics = async (rpcUrl: string): Promise<string | null> => {
+  const baseUrl = getBaseUrl(rpcUrl);
+  const metricsUrl = `${baseUrl}/ext/metrics`;
+  console.log(`Querying Prometheus metrics at: ${metricsUrl}`);
+  try {
+    const response = await axios.get(metricsUrl, {
+      timeout: 7000,
+      validateStatus: (status) => status >= 200 && status < 300, // Only 2xx are valid for Prometheus
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching Prometheus metrics from ${metricsUrl}:`);
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      console.error(`Prometheus Axios Error: ${axiosError.message}`);
+      if (axiosError.response) {
+        console.error('Prometheus Error Response Data:', axiosError.response.data);
+        console.error('Prometheus Error Response Status:', axiosError.response.status);
+      }
+    } else {
+      console.error('Unexpected non-Axios error fetching Prometheus metrics:', error);
+    }
+    return null;
+  }
+};
+
+/**
+ * Parses a specific metric value from raw Prometheus metrics text.
+ * Looks for lines like: metric_name{labels} value
+ * @param metricsText The raw Prometheus metrics text.
+ * @param metricName The name of the metric to parse.
+ * @returns The numeric value of the metric, or null if not found or not a number.
+ */
+const parsePrometheusMetric = (metricsText: string, metricName: string): number | null => {
+  if (!metricsText) return null;
+  // Basic regex: matches lines starting with the metric name, possibly followed by labels, then captures the number.
+  // This is a simplified parser; robust Prometheus clients use more complex parsing.
+  const regex = new RegExp(`^${metricName}(?:\{[^}]*\})?\s+([\d.]+)`, 'm');
+  const match = metricsText.match(regex);
+  if (match && match[1]) {
+    const value = parseFloat(match[1]);
+    return Number.isNaN(value) ? null : value;
+  }
+  console.warn(`Metric ${metricName} not found or invalid format in Prometheus output.`);
+  return null;
+};
+
+const fetchEthPendingTransactionCount = async (rpcUrl: string): Promise<number | null> => {
+  console.log(`Fetching pending tx count from: ${rpcUrl}`);
+  try {
+    const response = await axios.post(rpcUrl, { jsonrpc: '2.0', id: 1, method: 'eth_getBlockTransactionCountByNumber', params: ['pending'] }, { headers: { 'Content-Type': 'application/json' }, timeout: 7000 });
+    if (response.data && response.data.result) {
+      const countHex = response.data.result;
+      const countDecimal = parseInt(countHex, 16);
+      if (Number.isNaN(countDecimal)) { console.error('Error parsing pending tx count from hex:', countHex); return null; }
+      console.log('Successfully fetched pending tx count:', countDecimal);
+      return countDecimal;
+    } else { console.error('Invalid response for eth_getBlockTransactionCountByNumber:', response.data); return null; }
+  } catch (error) { console.error('Error fetching eth_getBlockTransactionCountByNumber:', error instanceof Error ? error.message : error); return null; }
+};
+
+const fetchEthBlockByNumber = async (rpcUrl: string, blockNumberHex: string, includeFullTransactions: boolean): Promise<BlockDetails | null> => {
+  console.log(`Fetching block details for ${blockNumberHex} (fullTx: ${includeFullTransactions}) from: ${rpcUrl}`);
+  try {
+    const response = await axios.post(rpcUrl, { jsonrpc: '2.0', id: 3, method: 'eth_getBlockByNumber', params: [blockNumberHex, includeFullTransactions] }, { headers: { 'Content-Type': 'application/json' }, timeout: 7000 });
+    if (response.data && response.data.result) {
+      const block = response.data.result;
+      if (!block) { // Handle null block result (e.g. block not found)
+        console.error(`Block ${blockNumberHex} not found or null result.`);
+        return null;
+      }
+      const blockNum = parseInt(block.number, 16);
+      const timestamp = parseInt(block.timestamp, 16);
+      const transactionsArray = block.transactions || [];
+      const txCount = transactionsArray.length;
+      const size = parseInt(block.size, 16);
+      const gasUsed = parseInt(block.gasUsed, 16);
+
+      if ([blockNum, timestamp, size, gasUsed].some(Number.isNaN)) {
+        console.error('Error parsing block details (num, ts, size, gasUsed) from hex:', block);
+        return null;
+      }
+      // Extract only necessary transaction info (input) to keep BlockDetails light if fullTx=true
+      const processedTransactions: TransactionInput[] = includeFullTransactions 
+        ? transactionsArray.map((tx: any) => ({ input: tx.input || '0x' })) 
+        : []; // If not including full tx, this will be empty. TxCount is still valid.
+
+      return { number: blockNum, timestamp, transactions: processedTransactions, transactionsCount: txCount, sizeBytes: size, gasUsed };
+    } else { console.error(`Invalid response for eth_getBlockByNumber (${blockNumberHex}):`, response.data); return null; }
+  } catch (error) { console.error(`Error fetching eth_getBlockByNumber (${blockNumberHex}):`, error instanceof Error ? error.message : error); return null; }
+};
+
+const fetchEthLatestBlockNumberInfo = async (rpcUrl: string): Promise<BlockDetails | null> => {
+  console.log(`Fetching latest block number from: ${rpcUrl} using eth_blockNumber`);
+  try {
+    const response = await axios.post(rpcUrl, { jsonrpc: '2.0', id: 2, method: 'eth_blockNumber', params: [] }, { headers: { 'Content-Type': 'application/json' }, timeout: 7000 });
+    if (response.data && response.data.result) {
+      const blockNumberHex = response.data.result;
+      console.log('Successfully fetched latest block number (hex):', blockNumberHex);
+      return await fetchEthBlockByNumber(rpcUrl, blockNumberHex, true); // Fetch full transactions for the latest block
+    } else { console.error('Invalid response for eth_blockNumber:', response.data); return null; }
+  } catch (error) { console.error('Error fetching eth_blockNumber:', error instanceof Error ? error.message : error); return null; }
+};
+
+/**
+ * Fetches the current gas price using eth_gasPrice.
+ * @param rpcUrl The EVM JSON-RPC URL.
+ * @returns A promise that resolves to the gas price in Gwei as a string (e.g., "20.5 Gwei"), or null if an error occurs.
+ */
+const fetchEthGasPriceGwei = async (rpcUrl: string): Promise<string | null> => {
+  console.log(`Fetching current gas price from: ${rpcUrl} using eth_gasPrice`);
+  try {
+    const response = await axios.post(rpcUrl, { jsonrpc: '2.0', id: 4, method: 'eth_gasPrice', params: [] }, { headers: { 'Content-Type': 'application/json' }, timeout: 7000 });
+    if (response.data && response.data.result) {
+      const gasPriceHex = response.data.result;
+      const gasPriceWei = parseInt(gasPriceHex, 16);
+      if (Number.isNaN(gasPriceWei)) {
+        console.error('Error parsing gas price from hex:', gasPriceHex);
+        return null;
+      }
+      const gasPriceGwei = (gasPriceWei / 1e9).toFixed(1); // Keep one decimal place for Gwei
+      console.log('Successfully fetched gas price (Wei):', gasPriceWei, `(${gasPriceGwei} Gwei)`);
+      return `${gasPriceGwei} Gwei`;
+    } else {
+      console.error('Invalid response for eth_gasPrice:', response.data);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error fetching eth_gasPrice:', error instanceof Error ? error.message : error);
+    return null;
+  }
+};
+
+/**
+ * Fetches metrics for a given subnet RPC URL.
+ * Iteration 1: Fetches real Validator Health. Other metrics are mocked.
+ * @param rpcUrl The RPC URL of the subnet.
+ * @returns Subnet metrics with real health data and mocked बाकी data.
+ */
+export const getMetrics = async (rpcUrl: string): Promise<SubnetMetrics> => {
+  console.log(`Fetching real metrics from RPC: ${rpcUrl}`);
+  
+  const pendingCount = await fetchEthPendingTransactionCount(rpcUrl);
+  const mempoolValue: number | string = pendingCount !== null ? pendingCount : "N/A (RPC error)";
+  console.log(`Final mempool size determined: ${mempoolValue}`);
+
+  const currentGasPriceGwei = await fetchEthGasPriceGwei(rpcUrl);
+  const gasUsageValue: string = currentGasPriceGwei !== null ? currentGasPriceGwei : "N/A (RPC error)";
+  console.log(`Final gas price determined: ${gasUsageValue}`);
+
+  const latestBlockDetails = await fetchEthLatestBlockNumberInfo(rpcUrl);
+  
+  let latestBlockNum: number | string = "(mocked) #0";
+  let transactionsInLatestBlock: number | string = "(mocked) 0";
+  let latestBlockSize: number | string = "(mocked) 0 bytes";
+  let gasUsedInLatestBlock: number | string = "(mocked) 0";
+  let lastBlockTimeSec: number | string = "(mocked) 0s";
+  let contractInteractionsInLastBlock: number | string = "(mocked) 0";
+  let tpsValue: string = "(mocked) 0.0 TPS";
+
+  if (latestBlockDetails) {
+    latestBlockNum = latestBlockDetails.number;
+    transactionsInLatestBlock = latestBlockDetails.transactionsCount; // This is total txs in block
+    latestBlockSize = latestBlockDetails.sizeBytes;
+    gasUsedInLatestBlock = latestBlockDetails.gasUsed;
+
+    // Calculate contract interactions based on input data
+    const interactions = latestBlockDetails.transactions.filter(tx => tx.input && tx.input !== '0x').length;
+    contractInteractionsInLastBlock = interactions;
+    console.log(`Contract interactions in latest block (tx with input data): ${interactions}`);
+
+    if (latestBlockDetails.number > 0) {
+      const prevBlockNumberHex = `0x${(latestBlockDetails.number - 1).toString(16)}`;
+      // For prev block time, we don't need full transaction objects
+      const prevBlockDetails = await fetchEthBlockByNumber(rpcUrl, prevBlockNumberHex, false);
+      if (prevBlockDetails) {
+        const timeDiffSeconds = latestBlockDetails.timestamp - prevBlockDetails.timestamp;
+        lastBlockTimeSec = timeDiffSeconds >= 0 ? timeDiffSeconds : "N/A";
+
+        // Calculate TPS for the last block
+        if (typeof transactionsInLatestBlock === 'number' && 
+            typeof lastBlockTimeSec === 'number' && 
+            lastBlockTimeSec > 0) {
+          const tpsCalc = (transactionsInLatestBlock / lastBlockTimeSec).toFixed(1);
+          tpsValue = `${tpsCalc} TPS`;
+        } else if (typeof transactionsInLatestBlock === 'number' && transactionsInLatestBlock === 0 && typeof lastBlockTimeSec === 'number' && lastBlockTimeSec >=0) {
+          tpsValue = "0.0 TPS"; // If 0 transactions, TPS is 0
+        } else {
+          tpsValue = "N/A";
+        }
+      } else { 
+        lastBlockTimeSec = "N/A (prev block error)"; 
+        tpsValue = "N/A";
+      }
+    }
+    console.log(`Latest Block: ${latestBlockNum}, Total TXs: ${transactionsInLatestBlock}, Contract Interactions: ${contractInteractionsInLastBlock}, Size: ${latestBlockSize} bytes, GasUsed: ${gasUsedInLatestBlock}, Last Block Time: ${lastBlockTimeSec}s, TPS (last block): ${tpsValue}`);
+  } else {
+    latestBlockNum = "N/A (RPC error)";
+    transactionsInLatestBlock = "N/A (RPC error)";
+    latestBlockSize = "N/A (RPC error)";
+    gasUsedInLatestBlock = "N/A (RPC error)";
+    lastBlockTimeSec = "N/A (RPC error)";
+    contractInteractionsInLastBlock = "N/A (RPC error)";
+    tpsValue = "N/A (RPC error)";
+    console.log("Failed to fetch latest block details.");
+  }
+
+  return {
+    validatorHealth: "N/A (Public RPC - Health check skipped)",
+    mempoolSize: mempoolValue,
+    uptime: "(mocked) 99.9%",
+    tps: tpsValue,
+    gasUsage: gasUsageValue,
+    contractCalls: { 
+      total: contractInteractionsInLastBlock, 
+      read: "(mocked) N/A", // Read/write breakdown is complex, mock for now
+      write: "(mocked) N/A" 
+    },
+    blockProduction: {
+      latestBlock: latestBlockNum,
+      avgBlockTime: lastBlockTimeSec,
+      txCount: transactionsInLatestBlock, // This is total transactions in block
+      blockSize: latestBlockSize,
+      gasUsedLatestBlock: gasUsedInLatestBlock,
+    },
+  };
+}; 
