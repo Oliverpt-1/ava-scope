@@ -1,31 +1,90 @@
 import { Router, Request, Response } from 'express';
-import { asyncHandler } from './asyncHandler';
-import { getMetrics } from '../services/metrics'; // This will be created next
+import { asyncHandler } from './asyncHandler'; // Assuming asyncHandler is in the same directory: src/api/
+import { 
+  getMempoolSamples, 
+  getTpsSamples, 
+  getBlocktimeSamples,
+  getAverageBlockTime,
+  getAverageTps
+} from '../lib/supabaseHelpers'; // Corrected path to lib/
 
 const router = Router();
 
-// GET /api/metrics/:subnetId - Fetch metrics for a given subnet
-router.get('/:subnetId', asyncHandler(async (req: Request, res: Response) => {
+const DEFAULT_RANGE_HOURS = 24;
+
+// GET /api/metrics/:subnetId/mempool - Fetch stored mempool samples for a given subnet
+router.get('/:subnetId/mempool', asyncHandler(async (req: Request, res: Response) => {
   const { subnetId } = req.params;
-  // TODO: In a real app, you'd fetch the subnet's RPC URL from your database
-  // using subnetId and the authenticated user ID to ensure they own the subnet.
-  // For now, we'll assume a mock RPC URL or pass it directly if your design changes.
-  //const mockRpcUrl = `https://subnets.avax.network/animalia/mainnet/rpc`; // animalia RPC
-  const mockRpcUrl = 'https://subnets.avax.network/beam/mainnet/rpc'; // beam RPC
+  const rangeHours = req.query.rangeHours ? parseInt(req.query.rangeHours as string, 10) : DEFAULT_RANGE_HOURS;
 
-  console.log(`Fetching metrics for subnet ${subnetId} using RPC: ${mockRpcUrl}`);
-
-  // Fetch metrics using the service
-  // No try-catch here for getMetrics because asyncHandler will catch its errors
-  const metrics = getMetrics(mockRpcUrl);
-  
-  // Simulate potential fetching error for frontend testing
-  if (subnetId === 'error') {
-    // This is a mock error condition for testing frontend error handling
-    throw new Error('Failed to fetch metrics for subnet ' + subnetId);
+  if (isNaN(rangeHours) || rangeHours <= 0) {
+    return res.status(400).json({ error: 'Invalid rangeHours parameter. Must be a positive number.' });
   }
 
-  res.json(metrics);
+  // TODO: Validate subnetId format (e.g., UUID)
+  // TODO: Authenticate user and verify they have access to this subnetId
+
+  console.log(`Fetching mempool samples for subnet ${subnetId} for the last ${rangeHours} hours`);
+  const samples = await getMempoolSamples(subnetId, rangeHours);
+  res.json(samples);
 }));
+
+// GET /api/metrics/:subnetId/tps - Fetch stored TPS samples for a given subnet
+router.get('/:subnetId/tps', asyncHandler(async (req: Request, res: Response) => {
+  const { subnetId } = req.params;
+  const rangeHours = req.query.rangeHours ? parseInt(req.query.rangeHours as string, 10) : DEFAULT_RANGE_HOURS;
+
+  if (isNaN(rangeHours) || rangeHours <= 0) {
+    return res.status(400).json({ error: 'Invalid rangeHours parameter. Must be a positive number.' });
+  }
+
+  console.log(`Fetching TPS samples for subnet ${subnetId} for the last ${rangeHours} hours`);
+  const samples = await getTpsSamples(subnetId, rangeHours);
+  res.json(samples);
+}));
+
+// GET /api/metrics/:subnetId/tps/average - Fetch average TPS
+router.get('/:subnetId/tps/average', asyncHandler(async (req: Request, res: Response) => {
+  const { subnetId } = req.params;
+  const rangeHours = req.query.rangeHours ? parseInt(req.query.rangeHours as string, 10) : DEFAULT_RANGE_HOURS;
+
+  if (isNaN(rangeHours) || rangeHours <= 0) {
+    return res.status(400).json({ error: 'Invalid rangeHours parameter. Must be a positive number.' });
+  }
+
+  const averageData = await getAverageTps(subnetId, rangeHours);
+  res.json(averageData);
+}));
+
+// GET /api/metrics/:subnetId/blocktime - Fetch stored block time samples for a given subnet
+router.get('/:subnetId/blocktime', asyncHandler(async (req: Request, res: Response) => {
+  const { subnetId } = req.params;
+  const rangeHours = req.query.rangeHours ? parseInt(req.query.rangeHours as string, 10) : DEFAULT_RANGE_HOURS;
+
+  if (isNaN(rangeHours) || rangeHours <= 0) {
+    return res.status(400).json({ error: 'Invalid rangeHours parameter. Must be a positive number.' });
+  }
+
+  console.log(`Fetching block time samples for subnet ${subnetId} for the last ${rangeHours} hours`);
+  const samples = await getBlocktimeSamples(subnetId, rangeHours);
+  res.json(samples);
+}));
+
+// GET /api/metrics/:subnetId/blocktime/average - Fetch average block time
+router.get('/:subnetId/blocktime/average', asyncHandler(async (req: Request, res: Response) => {
+  const { subnetId } = req.params;
+  const rangeHours = req.query.rangeHours ? parseInt(req.query.rangeHours as string, 10) : DEFAULT_RANGE_HOURS;
+
+  if (isNaN(rangeHours) || rangeHours <= 0) {
+    return res.status(400).json({ error: 'Invalid rangeHours parameter. Must be a positive number.' });
+  }
+
+  const averageData = await getAverageBlockTime(subnetId, rangeHours);
+  res.json(averageData);
+}));
+
+// Note: The old GET /api/metrics/:subnetId route that fetched LIVE metrics directly via getMetrics(rpcUrl)
+// has been removed in favor of these routes that fetch STORED time-series data.
+// If live, on-demand metrics are still needed, that route could be re-added or adapted.
 
 export default router; 
