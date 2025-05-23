@@ -57,7 +57,9 @@ const getBaseUrl = (rpcUrl: string): string => {
   }
 };
 
-const fetchEthBlockByNumber = async (rpcUrl: string, blockNumberHex: string, includeFullTransactions: boolean): Promise<BlockDetails | null> => {
+// THIS FUNCTION IS USED BY THE POLLER and getMetrics
+// Ensure it is exported
+export const fetchEthBlockByNumber = async (rpcUrl: string, blockNumberHex: string, includeFullTransactions: boolean): Promise<BlockDetails | null> => {
   console.log(`Fetching block details for ${blockNumberHex} (fullTx: ${includeFullTransactions}) from: ${rpcUrl}`);
   try {
     const response = await axios.post(rpcUrl, { jsonrpc: '2.0', id: 1, method: 'eth_getBlockByNumber', params: [blockNumberHex, includeFullTransactions] }, { headers: { 'Content-Type': 'application/json' }, timeout: 7000 });
@@ -361,4 +363,55 @@ export const getMetrics = async (rpcUrl: string): Promise<SubnetMetrics> => {
     erc721TransferCountsPerMinute: null, // Placeholder
     avgGasUtilizationPercent: avgGasUtilPercent, // This is for the LATEST block
   };
-}; 
+};
+
+// Interface for raw log entries (simplified, ensure it matches what eth_getLogs returns)
+interface RawLogEntry {
+  address: string;
+  topics: string[];
+  data: string;
+  blockNumber: string; // hex string
+  transactionHash: string;
+  logIndex: string; // hex string
+  // blockHash and removed might also be present
+}
+
+// Fetches raw logs for a given block range and topic
+export async function getRawLogsForBlockRange(
+  rpcUrl: string, 
+  fromBlock: number, 
+  toBlock: number, 
+  topic: string
+): Promise<RawLogEntry[]> {
+  console.log(`[Service:getRawLogs] Fetching logs with topic ${topic} for blocks ${fromBlock} to ${toBlock}`);
+  try {
+    const response = await axios.post(rpcUrl, {
+      jsonrpc: '2.0',
+      id: 'eth_getLogs_poller_' + Date.now(),
+      method: 'eth_getLogs',
+      params: [{
+        fromBlock: '0x' + fromBlock.toString(16),
+        toBlock: '0x' + toBlock.toString(16),
+        topics: [topic]
+      }]
+    }, { headers: { 'Content-Type': 'application/json' }, timeout: 20000 });
+
+    if (response.data.error) {
+      console.error(`[Service:getRawLogs] RPC Error: ${response.data.error.message}`, response.data.error);
+      return [];
+    }
+    if (response.data.result && Array.isArray(response.data.result)) {
+      console.log(`[Service:getRawLogs] Fetched ${response.data.result.length} raw logs for blocks ${fromBlock}-${toBlock}.`);
+      return response.data.result as RawLogEntry[];
+    }
+    console.warn("[Service:getRawLogs] No logs found or unexpected result format.", response.data.result);
+    return [];
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response) {
+      console.error(`[Service:getRawLogs] Axios Error fetching logs for ${fromBlock}-${toBlock}: Status ${error.response.status}`, error.response.data);
+    } else {
+      console.error(`[Service:getRawLogs] Generic Error fetching logs for ${fromBlock}-${toBlock}:`, error);
+    }
+    return []; // Return empty on error to allow poller to continue
+  }
+} 

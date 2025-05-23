@@ -4,27 +4,35 @@ import {
   getAllSubnetsForPolling, 
   addDirectMetricsSamples,
   getLastProcessedBlockForSubnet,
-  addGasUtilizationSample
+  addGasUtilizationSample,
+  insertErcTransferCountsBatch,
+  ErcTransferBlockData
 } from '../lib/supabaseHelpers';
 import { 
   getMetrics, 
-  fetchAndProcessBlockRangeForTransfersAndGas
+  fetchAndProcessBlockRangeForTransfersAndGas,
+  fetchEthBlockByNumber,
+  getRawLogsForBlockRange
 } from '../services/metrics';
 import axios from 'axios'; // For fetching current block number
 
 // // DEBUGGING: Log the key after dotenv.config() // REMOVE THIS
 // console.log(`[DEBUG Poller] SUPABASE_SERVICE_ROLE_KEY after dotenv: '${process.env.SUPABASE_SERVICE_ROLE_KEY}'`); // REMOVE THIS
 
-const POLLING_INTERVAL_MS = 2 * 1000; // Changed to 2 seconds
+const POLLING_INTERVAL_MS = 15 * 1000; // Changed to 2 seconds
 const INITIAL_HISTORICAL_BLOCK_COUNT = 2000; // How many blocks to fetch on the very first run for a subnet
-const MAX_BLOCKS_TO_PROCESS_PER_CYCLE = 5000; // Safety cap: Max blocks to process in one poller cycle for historical catch-up
+const MAX_BLOCKS_TO_PROCESS_PER_CYCLE = 500; // Reduced for more frequent, smaller transfer batches
+const ERC_LOG_BATCH_SIZE = 100; // How many blocks to query for logs at a time for transfers
+const ERC_INSERT_BATCH_SIZE = 50; // How many records to batch insert for transfers
+
+const TRANSFER_EVENT_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a123bf2ecdcdffac2282';
 
 let isPolling = false; // Simple lock to prevent concurrent polling runs if one takes too long
 
 async function getCurrentChainHeadBlock(rpcUrl: string): Promise<number | null> {
   try {
     const response = await axios.post(rpcUrl, 
-      { jsonrpc: '2.0', id: 'chainIdCheck', method: 'eth_blockNumber', params: [] }, 
+      { jsonrpc: '2.0', id: 'eth_blockNumber_poller', method: 'eth_blockNumber', params: [] }, 
       { headers: { 'Content-Type': 'application/json' }, timeout: 7000 }
     );
     if (response.data && response.data.result) {
@@ -103,47 +111,98 @@ async function pollSubnetMetrics() {
           console.warn(`[Poller - ${subnet.name}] Could not retrieve live metrics. Might be an RPC issue.`);
         }
 
-        // 2. Process historical/new blocks for Gas Utilization and ERC Transfers
+        // 2. Process historical/new blocks for Gas Utilization AND NOW ERC Transfers
         const currentChainHead = await getCurrentChainHeadBlock(subnet.rpc_url);
         if (currentChainHead === null) {
           console.error(`[Poller - ${subnet.name}] Failed to get current chain head block. Skipping extended metrics for this cycle.`);
           continue; 
         }
 
-        let lastProcessedBlock = await getLastProcessedBlockForSubnet(subnet.id);
-        let fromBlockToProcess: number;
-        
-        if (lastProcessedBlock === null) {
-          // First time processing this subnet, or no gas samples yet
-          fromBlockToProcess = Math.max(0, currentChainHead - INITIAL_HISTORICAL_BLOCK_COUNT + 1); 
-          console.log(`[Poller - ${subnet.name}] First run or no prior gas_utilization_samples. Starting extended metrics from block ${fromBlockToProcess} (current head: ${currentChainHead}).`);
-        } else {
-          fromBlockToProcess = lastProcessedBlock + 1;
-          console.log(`[Poller - ${subnet.name}] Resuming extended metrics from block ${fromBlockToProcess} (last processed: ${lastProcessedBlock}, current head: ${currentChainHead}).`);
-        }
+        let lastProcessedGasBlock = await getLastProcessedBlockForSubnet(subnet.id);
+        let fromBlockForGas = lastProcessedGasBlock === null 
+            ? Math.max(0, currentChainHead - INITIAL_HISTORICAL_BLOCK_COUNT + 1)
+            : lastProcessedGasBlock + 1;
 
-        if (fromBlockToProcess > currentChainHead) {
-          console.log(`[Poller - ${subnet.name}] No new blocks to process for extended metrics. (From: ${fromBlockToProcess}, Head: ${currentChainHead}).`);
+        if (fromBlockForGas > currentChainHead) {
+          console.log(`[Poller - ${subnet.name}] No new blocks to process for extended metrics. (From: ${fromBlockForGas}, Head: ${currentChainHead}).`);
         } else {
           // Cap the number of blocks to process in one go to prevent very long cycles
-          const toBlockToProcess = Math.min(currentChainHead, fromBlockToProcess + MAX_BLOCKS_TO_PROCESS_PER_CYCLE - 1);
+          const toBlockForGas = Math.min(currentChainHead, fromBlockForGas + MAX_BLOCKS_TO_PROCESS_PER_CYCLE - 1);
           
-          console.log(`[Poller - ${subnet.name}] Fetching and processing extended metrics for blocks ${fromBlockToProcess} to ${toBlockToProcess}.`);
-          const { lastSuccessfullyProcessedBlock: actualLastProcessed } = await fetchAndProcessBlockRangeForTransfersAndGas(
-            subnet.rpc_url,
-            subnet.id,
-            fromBlockToProcess,
-            toBlockToProcess
-          );
+          console.log(`[Poller - ${subnet.name}] Processing Gas/ERC for blocks ${fromBlockForGas} to ${toBlockForGas}. Head: ${currentChainHead}`);
+          
+          // A. Process Gas Utilization (using the existing complex function for now, though it also does ERC - this might be refactored later)
+          // For now, let fetchAndProcessBlockRangeForTransfersAndGas handle its gas part for this range.
+          // This function ALREADY saves gas_utilization_samples.
+          // We will add separate ERC log fetching for the same range below.
+          
+          // B. Fetch, Process, and Store ERC Transfers for this same block range
+          let ercTransfersToInsert: ErcTransferBlockData[] = [];
+          const blockTimestampsCache = new Map<number, string | null>(); // Cache timestamps within this cycle
 
-          if (actualLastProcessed !== null) {
-            console.log(`[Poller - ${subnet.name}] Successfully processed extended metrics up to block ${actualLastProcessed}.`);
-             if (toBlockToProcess < currentChainHead) {
-              console.log(`[Poller - ${subnet.name}] More blocks remain (${actualLastProcessed + 1} to ${currentChainHead}). Will continue in next cycle.`);
+          for (let batchStartBlock = fromBlockForGas; batchStartBlock <= toBlockForGas; batchStartBlock += ERC_LOG_BATCH_SIZE) {
+            const batchEndBlock = Math.min(batchStartBlock + ERC_LOG_BATCH_SIZE - 1, toBlockForGas);
+            // console.log(`[Poller - ${subnet.name}] Fetching ERC logs for sub-batch ${batchStartBlock}-${batchEndBlock}`);
+            
+            const rawLogs = await getRawLogsForBlockRange(subnet.rpc_url, batchStartBlock, batchEndBlock, TRANSFER_EVENT_TOPIC);
+            if (rawLogs.length === 0) continue;
+
+            const transfersInBatchByBlock = new Map<number, number>();
+            for (const log of rawLogs) {
+                if (log.topics && log.topics[0] && log.topics[0].toLowerCase() === TRANSFER_EVENT_TOPIC.toLowerCase() && log.topics.length >=3) {
+                    const blockNum = parseInt(log.blockNumber, 16);
+                    transfersInBatchByBlock.set(blockNum, (transfersInBatchByBlock.get(blockNum) || 0) + 1);
+                }
             }
-          } else {
-            console.warn(`[Poller - ${subnet.name}] Processing extended metrics for range ${fromBlockToProcess}-${toBlockToProcess} did not complete fully.`);
+
+            for (const [blockNum, count] of transfersInBatchByBlock) {
+              let isoTimestamp = blockTimestampsCache.get(blockNum);
+              if (isoTimestamp === undefined) { // Check undefined, as null means fetch failed previously
+                const blockDetails = await fetchEthBlockByNumber(subnet.rpc_url, `0x${blockNum.toString(16)}`, false);
+                if (blockDetails && blockDetails.timestamp) {
+                  isoTimestamp = new Date(blockDetails.timestamp * 1000).toISOString();
+                } else {
+                  console.warn(`[Poller - ${subnet.name}] Failed to get timestamp for block #${blockNum} for ERC transfers. Skipping.`);
+                  isoTimestamp = null; // Mark as failed to prevent re-fetch in this cycle
+                }
+                blockTimestampsCache.set(blockNum, isoTimestamp);
+              }
+
+              if (isoTimestamp) {
+                ercTransfersToInsert.push({
+                  subnet_id: subnet.id,
+                  block_number: blockNum,
+                  block_timestamp: isoTimestamp,
+                  erc20_transfers: count, // All transfers are ERC20 for now
+                  erc721_transfers: 0,
+                });
+              }
+              if (ercTransfersToInsert.length >= ERC_INSERT_BATCH_SIZE) {
+                await insertErcTransferCountsBatch(ercTransfersToInsert);
+                ercTransfersToInsert = [];
+              }
+            }
           }
+          if (ercTransfersToInsert.length > 0) {
+            await insertErcTransferCountsBatch(ercTransfersToInsert);
+          }
+          console.log(`[Poller - ${subnet.name}] ERC transfer processing finished for blocks ${fromBlockForGas}-${toBlockForGas}.`);
+           // The existing fetchAndProcessBlockRangeForTransfersAndGas is still called for its Gas part below
+           // This means gas_utilization_samples is populated by that function for this range.
+        }
+
+        // Call the original combined function - primarily for its GAS processing part now.
+        // Its ERC processing part is now somewhat redundant but harmless if inserts are ignore-duplicates.
+        // TODO: Refactor fetchAndProcessBlockRangeForTransfersAndGas to only do gas, or make a separate gas-only function.
+        if (fromBlockForGas <= currentChainHead) {
+            const toBlockForProcessing = Math.min(currentChainHead, fromBlockForGas + MAX_BLOCKS_TO_PROCESS_PER_CYCLE - 1);
+            // console.log(`[Poller - ${subnet.name}] Calling original processor for Gas for blocks ${fromBlockForGas} to ${toBlockForProcessing}.`);
+            await fetchAndProcessBlockRangeForTransfersAndGas(
+                subnet.rpc_url,
+                subnet.id,
+                fromBlockForGas,
+                toBlockForProcessing
+            );
         }
 
       } catch (error) {

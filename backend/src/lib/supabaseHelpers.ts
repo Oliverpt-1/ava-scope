@@ -420,4 +420,56 @@ export const addDirectMetricsSamples = async (subnetId: string, liveMetrics: Sub
   } catch (error) {
     console.error(`Fetch: Error in Promise.all for direct metric samples, subnet ${subnetId}:`, error);
   }
+};
+
+// Interface for the data to be inserted into erc_transfer_counts
+// This should match the structure expected by the table and the backfill script
+export interface ErcTransferBlockData {
+  subnet_id: string;
+  block_number: number;
+  block_timestamp: string; // ISO string
+  erc20_transfers: number;
+  erc721_transfers: number; // Will be 0 for now from the poller as well
+}
+
+// Insert ERC transfer count data into Supabase
+// Adapted from the backfillTransfers.ts script
+export const insertErcTransferCountsBatch = async (records: ErcTransferBlockData[]): Promise<void> => {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    console.error("[SupabaseHelper:insertErcTransferCountsBatch] Supabase URL or Service Role Key is not defined. Cannot insert records.");
+    return;
+  }
+  if (records.length === 0) {
+    // console.log("[SupabaseHelper:insertErcTransferCountsBatch] No records to insert."); // Can be noisy
+    return;
+  }
+  console.log(`[SupabaseHelper:insertErcTransferCountsBatch] Attempting to insert ${records.length} ERC transfer count records...`);
+
+  const endpoint = `${SUPABASE_URL}/rest/v1/erc_transfer_counts`;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'apikey': SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        // For per-block data, we might want to ignore duplicates if the poller re-processes a block.
+        // The table should have a UNIQUE constraint on (subnet_id, block_number) for this to be effective.
+        'Prefer': 'return=minimal,resolution=ignore-duplicates', 
+      },
+      body: JSON.stringify(records),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`[SupabaseHelper:insertErcTransferCountsBatch] Error inserting ${records.length} records. Status: ${response.status} ${response.statusText}. Body: ${errorBody}`);
+      if (records.length > 0) {
+        console.error("[SupabaseHelper:insertErcTransferCountsBatch] First record of failing batch:", JSON.stringify(records[0]));
+      }
+    } else {
+      console.log(`[SupabaseHelper:insertErcTransferCountsBatch] Successfully processed batch insert for ${records.length} ERC transfer count records. Status: ${response.status}`);
+    }
+  } catch (error) {
+    console.error("[SupabaseHelper:insertErcTransferCountsBatch] Network or other error during batch insert:", error);
+  }
 }; 
