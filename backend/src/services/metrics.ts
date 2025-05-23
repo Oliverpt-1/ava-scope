@@ -1,25 +1,25 @@
 import axios, { AxiosError } from 'axios';
 
 export interface ContractCallMetrics {
-  total: number | string; // Will be count of txs with input data in last block
-  read: number | string;
-  write: number | string;
+  total: number | null; // Will be count of txs with input data in last block
+  read: number | null;
+  write: number | null;
 }
 
 export interface BlockProductionMetrics {
-  latestBlock: number | string;
-  avgBlockTime: number | string;
-  txCount: number | string;
-  blockSize: number | string;
-  gasUsedLatestBlock?: number | string; // Gas used in the latest block
+  latestBlock: number | null;
+  avgBlockTime: number | null; // This is actually last block time in seconds
+  txCount: number | null;
+  blockSize: number | null; // In bytes
+  gasUsedLatestBlock?: number | null; // Gas used in the latest block
 }
 
 export interface SubnetMetrics {
   validatorHealth: string;
-  uptime: number | string;
-  mempoolSize: number | string;
-  tps: string; // To accommodate formatted string like "12.3 TPS"
-  gasUsage: string; // Current gas price in Gwei (e.g., "23.5 Gwei")
+  uptime: string | null; // Keep as string for "99.9%" or null
+  mempoolSize: number | null;
+  tps: number | null; // Raw TPS value
+  gasPriceWei: number | null; // Current gas price in Wei
   contractCalls: ContractCallMetrics;
   blockProduction: BlockProductionMetrics;
 }
@@ -168,7 +168,7 @@ const fetchEthLatestBlockNumberInfo = async (rpcUrl: string): Promise<BlockDetai
  * @param rpcUrl The EVM JSON-RPC URL.
  * @returns A promise that resolves to the gas price in Gwei as a string (e.g., "20.5 Gwei"), or null if an error occurs.
  */
-const fetchEthGasPriceGwei = async (rpcUrl: string): Promise<string | null> => {
+const fetchEthGasPriceWei = async (rpcUrl: string): Promise<number | null> => {
   console.log(`Fetching current gas price from: ${rpcUrl} using eth_gasPrice`);
   try {
     const response = await axios.post(rpcUrl, { jsonrpc: '2.0', id: 4, method: 'eth_gasPrice', params: [] }, { headers: { 'Content-Type': 'application/json' }, timeout: 7000 });
@@ -179,9 +179,8 @@ const fetchEthGasPriceGwei = async (rpcUrl: string): Promise<string | null> => {
         console.error('Error parsing gas price from hex:', gasPriceHex);
         return null;
       }
-      const gasPriceGwei = (gasPriceWei / 1e9).toFixed(1); // Keep one decimal place for Gwei
-      console.log('Successfully fetched gas price (Wei):', gasPriceWei, `(${gasPriceGwei} Gwei)`);
-      return `${gasPriceGwei} Gwei`;
+      console.log('Successfully fetched gas price (Wei):', gasPriceWei);
+      return gasPriceWei;
     } else {
       console.error('Invalid response for eth_gasPrice:', response.data);
       return null;
@@ -202,85 +201,77 @@ export const getMetrics = async (rpcUrl: string): Promise<SubnetMetrics> => {
   console.log(`Fetching real metrics from RPC: ${rpcUrl}`);
   
   const pendingCount = await fetchEthPendingTransactionCount(rpcUrl);
-  const mempoolValue: number | string = pendingCount !== null ? pendingCount : "N/A (RPC error)";
-  console.log(`Final mempool size determined: ${mempoolValue}`);
+  const mempoolValue: number | null = pendingCount !== null ? pendingCount : null;
+  console.log(`Final mempool size determined: ${mempoolValue !== null ? mempoolValue : 'N/A'}`);
 
-  const currentGasPriceGwei = await fetchEthGasPriceGwei(rpcUrl);
-  const gasUsageValue: string = currentGasPriceGwei !== null ? currentGasPriceGwei : "N/A (RPC error)";
-  console.log(`Final gas price determined: ${gasUsageValue}`);
+  const currentGasPriceWei = await fetchEthGasPriceWei(rpcUrl);
+  const gasPriceWeiValue: number | null = currentGasPriceWei !== null ? currentGasPriceWei : null;
+  console.log(`Final gas price (Wei) determined: ${gasPriceWeiValue !== null ? gasPriceWeiValue : 'N/A'}`);
 
   const latestBlockDetails = await fetchEthLatestBlockNumberInfo(rpcUrl);
   
-  let latestBlockNum: number | string = "(mocked) #0";
-  let transactionsInLatestBlock: number | string = "(mocked) 0";
-  let latestBlockSize: number | string = "(mocked) 0 bytes";
-  let gasUsedInLatestBlock: number | string = "(mocked) 0";
-  let lastBlockTimeSec: number | string = "(mocked) 0s";
-  let contractInteractionsInLastBlock: number | string = "(mocked) 0";
-  let tpsValue: string = "(mocked) 0.0 TPS";
+  let latestBlockNum: number | null = null;
+  let transactionsInLatestBlock: number | null = null;
+  let latestBlockSize: number | null = null;
+  let gasUsedInLatestBlock: number | null = null;
+  let lastBlockTimeSec: number | null = null;
+  let contractInteractionsInLastBlock: number | null = null;
+  let tpsValue: number | null = null;
 
   if (latestBlockDetails) {
     latestBlockNum = latestBlockDetails.number;
-    transactionsInLatestBlock = latestBlockDetails.transactionsCount; // This is total txs in block
+    transactionsInLatestBlock = latestBlockDetails.transactionsCount;
     latestBlockSize = latestBlockDetails.sizeBytes;
     gasUsedInLatestBlock = latestBlockDetails.gasUsed;
 
-    // Calculate contract interactions based on input data
     const interactions = latestBlockDetails.transactions.filter(tx => tx.input && tx.input !== '0x').length;
     contractInteractionsInLastBlock = interactions;
-    console.log(`Contract interactions in latest block (tx with input data): ${interactions}`);
 
     if (latestBlockDetails.number > 0) {
       const prevBlockNumberHex = `0x${(latestBlockDetails.number - 1).toString(16)}`;
-      // For prev block time, we don't need full transaction objects
       const prevBlockDetails = await fetchEthBlockByNumber(rpcUrl, prevBlockNumberHex, false);
       if (prevBlockDetails) {
         const timeDiffSeconds = latestBlockDetails.timestamp - prevBlockDetails.timestamp;
-        lastBlockTimeSec = timeDiffSeconds >= 0 ? timeDiffSeconds : "N/A";
+        lastBlockTimeSec = timeDiffSeconds >= 0 ? timeDiffSeconds : null;
 
-        // Calculate TPS for the last block
-        if (typeof transactionsInLatestBlock === 'number' && 
-            typeof lastBlockTimeSec === 'number' && 
+        if (transactionsInLatestBlock !== null && 
+            lastBlockTimeSec !== null && 
             lastBlockTimeSec > 0) {
-          const tpsCalc = (transactionsInLatestBlock / lastBlockTimeSec).toFixed(1);
-          tpsValue = `${tpsCalc} TPS`;
-        } else if (typeof transactionsInLatestBlock === 'number' && transactionsInLatestBlock === 0 && typeof lastBlockTimeSec === 'number' && lastBlockTimeSec >=0) {
-          tpsValue = "0.0 TPS"; // If 0 transactions, TPS is 0
+          tpsValue = parseFloat((transactionsInLatestBlock / lastBlockTimeSec).toFixed(1));
+        } else if (transactionsInLatestBlock === 0 && lastBlockTimeSec !== null && lastBlockTimeSec >=0) {
+          tpsValue = 0.0;
         } else {
-          tpsValue = "N/A";
+          tpsValue = null;
         }
       } else { 
-        lastBlockTimeSec = "N/A (prev block error)"; 
-        tpsValue = "N/A";
+        lastBlockTimeSec = null;
+        tpsValue = null;
       }
     }
-    console.log(`Latest Block: ${latestBlockNum}, Total TXs: ${transactionsInLatestBlock}, Contract Interactions: ${contractInteractionsInLastBlock}, Size: ${latestBlockSize} bytes, GasUsed: ${gasUsedInLatestBlock}, Last Block Time: ${lastBlockTimeSec}s, TPS (last block): ${tpsValue}`);
-  } else {
-    latestBlockNum = "N/A (RPC error)";
-    transactionsInLatestBlock = "N/A (RPC error)";
-    latestBlockSize = "N/A (RPC error)";
-    gasUsedInLatestBlock = "N/A (RPC error)";
-    lastBlockTimeSec = "N/A (RPC error)";
-    contractInteractionsInLastBlock = "N/A (RPC error)";
-    tpsValue = "N/A (RPC error)";
-    console.log("Failed to fetch latest block details.");
   }
+  
+  console.log(
+    `Metrics Data: Latest Block: ${latestBlockNum ?? 'N/A'}, TXs: ${transactionsInLatestBlock ?? 'N/A'}, ` +
+    `Interactions: ${contractInteractionsInLastBlock ?? 'N/A'}, Size (bytes): ${latestBlockSize ?? 'N/A'}, ` +
+    `GasUsed (block): ${gasUsedInLatestBlock ?? 'N/A'}, Last Block Time (s): ${lastBlockTimeSec ?? 'N/A'}, ` +
+    `TPS: ${tpsValue ?? 'N/A'}, Mempool: ${mempoolValue ?? 'N/A'}, GasPrice (Wei): ${gasPriceWeiValue ?? 'N/A'}`
+  );
 
   return {
     validatorHealth: "N/A (Public RPC - Health check skipped)",
     mempoolSize: mempoolValue,
     uptime: "(mocked) 99.9%",
     tps: tpsValue,
-    gasUsage: gasUsageValue,
+    gasPriceWei: gasPriceWeiValue,
     contractCalls: { 
-      total: contractInteractionsInLastBlock, 
-      read: "(mocked) N/A", // Read/write breakdown is complex, mock for now
-      write: "(mocked) N/A" 
+      total: contractInteractionsInLastBlock,
+      read: null,
+      write: null
     },
     blockProduction: {
       latestBlock: latestBlockNum,
       avgBlockTime: lastBlockTimeSec,
-      txCount: transactionsInLatestBlock, // This is total transactions in block
+      txCount: transactionsInLatestBlock,
       blockSize: latestBlockSize,
       gasUsedLatestBlock: gasUsedInLatestBlock,
     },
