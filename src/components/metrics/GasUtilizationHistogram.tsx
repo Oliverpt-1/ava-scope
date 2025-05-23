@@ -14,68 +14,94 @@ interface GasUtilizationHistogramProps {
 }
 
 const GasUtilizationHistogram: React.FC<GasUtilizationHistogramProps> = ({ subnetId }) => {
+  console.log(`[GasUtilizationHistogram] Render. subnetId prop: ${subnetId}`); // Log 1: subnetId prop
+
   const [histogramData, setHistogramData] = useState<GasHistogramDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log(`[GasUtilizationHistogram useEffect] Triggered. subnetId: ${subnetId}`); // Log 2: useEffect trigger
+
     if (!subnetId) {
+      console.log('[GasUtilizationHistogram useEffect] No subnetId, clearing data and stopping.');
       setLoading(false);
       setHistogramData([]);
+      setError(null); // Clear previous errors
       return;
     }
 
     const fetchData = async () => {
+      console.log(`[GasUtilizationHistogram fetchData] Called for subnetId: ${subnetId}. Setting loading true.`);
       setLoading(true);
       setError(null);
+      setHistogramData([]); // Clear previous data
+
       try {
         const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        console.log(`[GasUtilizationHistogram fetchData] Time window: after ${fifteenMinutesAgo}`);
 
         const { data, error: dbError } = await supabase
           .from('gas_utilization_samples')
-          .select('block_timestamp, utilization_percentage') // Changed to utilization_percentage
+          .select('block_timestamp, utilization_percentage')
           .eq('subnet_id', subnetId)
-          .gte('block_timestamp', fifteenMinutesAgo) // Ensure we filter by block_timestamp
-          .order('block_timestamp', { ascending: false });
+          .gte('block_timestamp', fifteenMinutesAgo)
+          .order('block_timestamp', { ascending: false }); // Fetching descending to see latest first in raw log
 
-        if (dbError) throw dbError;
+        console.log('[GasUtilizationHistogram fetchData] Supabase raw response data:', JSON.stringify(data, null, 2)); // Log 3: Raw Supabase data
+        console.log('[GasUtilizationHistogram fetchData] Supabase error:', dbError); // Log 4: Supabase error object
 
-        const minuteBuckets: { [key: string]: { totalUtilization: number; count: number } } = {};
-        (data || []).forEach(sample => {
-          const date = new Date(sample.block_timestamp);
-          const minuteKey = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-          if (!minuteBuckets[minuteKey]) {
-            minuteBuckets[minuteKey] = { totalUtilization: 0, count: 0 };
+        if (dbError) {
+          console.error(`[GasUtilizationHistogram fetchData] Supabase error: ${dbError.message}`, dbError);
+          setError(dbError.message);
+          setHistogramData([]);
+        } else if (data && data.length > 0) {
+          console.log(`[GasUtilizationHistogram fetchData] ${data.length} samples received from Supabase.`);
+          const minuteBuckets: { [key: string]: { totalUtilization: number; count: number } } = {};
+          data.forEach(sample => {
+            const date = new Date(sample.block_timestamp);
+            const minuteKey = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+            if (!minuteBuckets[minuteKey]) {
+              minuteBuckets[minuteKey] = { totalUtilization: 0, count: 0 };
+            }
+            minuteBuckets[minuteKey].totalUtilization += Number(sample.utilization_percentage) || 0;
+            minuteBuckets[minuteKey].count += 1;
+          });
+          console.log('[GasUtilizationHistogram fetchData] Minute buckets:', JSON.stringify(minuteBuckets, null, 2)); // Log 5: Processed minute buckets
+
+          const processedData = Object.entries(minuteBuckets)
+            .map(([time, { totalUtilization, count }]) => ({
+              time,
+              avgUtilization: count > 0 ? parseFloat((totalUtilization / count).toFixed(2)) : 0,
+            }))
+            .sort((a, b) => a.time.localeCompare(b.time))
+            .slice(-15);
+          
+          console.log('[GasUtilizationHistogram fetchData] Final processedData for chart:', JSON.stringify(processedData, null, 2)); // Log 6: Data ready for chart
+          setHistogramData(processedData);
+          if (processedData.length === 0) {
+             console.log('[GasUtilizationHistogram fetchData] Processed data is empty, though raw data might have existed (e.g., all util was 0 or parse issues).');
           }
-          // Use utilization_percentage, ensuring it's a number (it's float in DB)
-          minuteBuckets[minuteKey].totalUtilization += Number(sample.utilization_percentage) || 0;
-          minuteBuckets[minuteKey].count += 1;
-        });
-
-        const processedData = Object.entries(minuteBuckets)
-          .map(([time, { totalUtilization, count }]) => ({
-            time,
-            // Multiply by 100 if utilization_percentage is 0.0-1.0 and you want to display 0-100%
-            // Assuming utilization_percentage is already 0-100 if it's for display
-            avgUtilization: count > 0 ? parseFloat((totalUtilization / count).toFixed(2)) : 0,
-          }))
-          .sort((a, b) => a.time.localeCompare(b.time)) // Sort by time ascending for chart
-          .slice(-15); // Ensure we only show up to 15 minutes of data
-
-        setHistogramData(processedData);
-
+        } else {
+          console.log('[GasUtilizationHistogram fetchData] No data received from Supabase (data is null or empty array).');
+          setHistogramData([]); // Ensure it's empty
+        }
       } catch (err: any) {
-        console.error(`Error fetching gas utilization data for subnet ${subnetId}:`, err);
-        setError("Failed to load gas utilization data.");
+        console.error('[GasUtilizationHistogram fetchData] Exception during fetch or processing:', err);
+        setError(err.message || "An unexpected error occurred.");
         setHistogramData([]);
       } finally {
+        console.log('[GasUtilizationHistogram fetchData] Setting loading false.');
         setLoading(false);
       }
     };
 
     fetchData();
-    const intervalId = setInterval(fetchData, 60000); // Refresh every minute
-    return () => clearInterval(intervalId);
+    const intervalId = setInterval(fetchData, 60000);
+    return () => {
+      console.log(`[GasUtilizationHistogram useEffect] Cleanup for subnetId: ${subnetId}`);
+      clearInterval(intervalId);
+    };
   }, [subnetId]);
 
   const chart = (
@@ -108,6 +134,8 @@ const GasUtilizationHistogram: React.FC<GasUtilizationHistogramProps> = ({ subne
   const latestAvgUtilization = histogramData.length > 0 ? histogramData[histogramData.length -1].avgUtilization : null;
   // Displaying the average utilization of the most recent bucket
   const displayValue = latestAvgUtilization !== null ? `${latestAvgUtilization.toFixed(1)}%` : '-';
+
+  console.log(`[GasUtilizationHistogram Render] Loading: ${loading}, Error: ${error}, HistogramData Length: ${histogramData.length}`); // Log 7: State before rendering MetricCard
 
   if (error && !loading && subnetId) {
     return (
