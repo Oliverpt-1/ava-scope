@@ -15,7 +15,7 @@ import TpsWidget from '../components/metrics/TpsWidget';
 import LatestBlockWidget from '../components/metrics/LatestBlockWidget';
 import Erc20TransfersWidget from '../components/metrics/Erc20TransfersWidget';
 import Erc721TransfersWidget from '../components/metrics/Erc721TransfersWidget';
-import GasLoadWidget from '../components/metrics/GasLoadWidget';
+import GasUtilizationHistogram from '../components/metrics/GasUtilizationHistogram';
 import MetricCard from '../components/metrics/MetricCard'; // For skeleton
 
 const Dashboard: React.FC = () => {
@@ -191,7 +191,7 @@ const Dashboard: React.FC = () => {
           <Erc721TransfersWidget subnetId={selectedSubnet.id} />
           {/* GasLoadWidget spans 2 columns on medium screens and above, full width on small */}
           <div className="md:col-span-2 lg:col-span-4">
-            <GasLoadWidget subnetId={selectedSubnet.id} />
+            <GasUtilizationHistogram subnetId={selectedSubnet.id} />
           </div>
         </div>
       ) : (
