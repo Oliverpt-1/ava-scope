@@ -14,7 +14,7 @@ export interface Subnet {
 
 export interface MetricCardProps {
   title: string;
-  value: string | number;
+  value?: string | number;
   icon: React.ReactNode;
   trend?: number;
   chart?: React.ReactNode;
