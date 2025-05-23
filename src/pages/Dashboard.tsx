@@ -14,7 +14,7 @@ import { Subnet } from '../types';
 import TpsWidget from '../components/metrics/TpsWidget';
 import LatestBlockWidget from '../components/metrics/LatestBlockWidget';
 import Erc20TransfersWidget from '../components/metrics/Erc20TransfersWidget';
-import Erc721TransfersWidget from '../components/metrics/Erc721TransfersWidget';
+// import Erc721TransfersWidget from '../components/metrics/Erc721TransfersWidget'; // Removed
 import GasUtilizationHistogram from '../components/metrics/GasUtilizationHistogram';
 import MetricCard from '../components/metrics/MetricCard'; // For skeleton
 
@@ -52,8 +52,7 @@ const Dashboard: React.FC = () => {
 
       if (data && data.length > 0) {
         setSubnets(data);
-        // Automatically select the first subnet, widgets will then fetch their data
-        if (!selectedSubnet) { // Select first subnet only if nothing is selected yet
+        if (!selectedSubnet || !data.find(s => s.id === selectedSubnet.id)) { // if no subnet selected or current one is not in the new list
             setSelectedSubnet(data[0]);
         }
       } else {
@@ -67,11 +66,11 @@ const Dashboard: React.FC = () => {
     } finally {
       setSubnetsLoading(false);
     }
-  }, [user, selectedSubnet]); // Added selectedSubnet to prevent re-selecting first subnet on every refresh
+  }, [user, selectedSubnet]);
 
   useEffect(() => {
     fetchSubnets();
-  }, [fetchSubnets]);
+  }, [fetchSubnets]); // Removed selectedSubnet from dep array to avoid re-fetching just on selection change itself from here
 
   // Removed fetchDashboardMetrics as widgets fetch their own data based on selectedSubnet.id
 
@@ -96,8 +95,10 @@ const Dashboard: React.FC = () => {
   };
 
   // Skeleton for individual cards (can be part of MetricCard itself)
-  const renderWidgetSkeleton = (title: string) => (
-    <MetricCard title={title} loading={true} icon={<div className="w-6 h-6 bg-[var(--bg-primary)] rounded-full" />} />
+  const renderWidgetSkeleton = (title: string, colSpanClass: string = '') => (
+    <div className={colSpanClass}>
+      <MetricCard title={title} loading={true} icon={<div className="w-6 h-6 bg-[var(--bg-primary)] rounded-full" />} />
+    </div>
   );
 
   return (
@@ -159,15 +160,12 @@ const Dashboard: React.FC = () => {
       )}
 
       {subnetsLoading ? (
-        // Grid for Skeletons
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {renderWidgetSkeleton("TPS")}
-          {renderWidgetSkeleton("Latest Block")}
-          {renderWidgetSkeleton("ERC20 Transfers")}
-          {renderWidgetSkeleton("ERC721 Transfers")}
-          <div className="lg:col-span-2">
-            {renderWidgetSkeleton("Gas Load (15 Min)")}
-          </div>
+          {renderWidgetSkeleton("TPS", "lg:col-span-2")}
+          {renderWidgetSkeleton("Latest Block", "lg:col-span-2")}
+          {renderWidgetSkeleton("ERC20 Transfers", "lg:col-span-4")}
+          {/* ERC721 Skeleton removed */}
+          {renderWidgetSkeleton("Gas Load (15 Min)", "lg:col-span-4")}
         </div>
       ) : !selectedSubnet && subnets.length > 0 ? (
          <div className="text-center py-10 text-[var(--text-secondary)]">
@@ -181,16 +179,18 @@ const Dashboard: React.FC = () => {
           <p className="text-[var(--text-secondary)]">Please add a subnet via the 'Subnets' page.</p>
         </div>
       ) : selectedSubnet ? (
-        // New 5-widget layout
-        // Grid: 2x2 + wide gas widget. For lg screens, perhaps 4 columns for first 4, then gas widget spans 2 on next row or all 4.
-        // Simplified: lg:grid-cols-4. Gas widget spans 2.
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <TpsWidget subnetId={selectedSubnet.id} />
-          <LatestBlockWidget subnetId={selectedSubnet.id} />
-          <Erc20TransfersWidget subnetId={selectedSubnet.id} />
-          <Erc721TransfersWidget subnetId={selectedSubnet.id} />
-          {/* GasLoadWidget spans 2 columns on medium screens and above, full width on small */}
-          <div className="md:col-span-2 lg:col-span-4">
+          <div className="lg:col-span-2">
+            <TpsWidget subnetId={selectedSubnet.id} />
+          </div>
+          <div className="lg:col-span-2">
+            <LatestBlockWidget subnetId={selectedSubnet.id} />
+          </div>
+          <div className="col-span-1 md:col-span-2 lg:col-span-4">
+            <Erc20TransfersWidget subnetId={selectedSubnet.id} />
+          </div>
+          {/* Erc721TransfersWidget removed */}
+          <div className="col-span-1 md:col-span-2 lg:col-span-4">
             <GasUtilizationHistogram subnetId={selectedSubnet.id} />
           </div>
         </div>
