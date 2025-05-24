@@ -38,16 +38,37 @@ const GasUtilizationHistogram: React.FC<GasUtilizationHistogramProps> = ({ subne
       setHistogramData([]);
 
       try {
-        const startTime = new Date('2025-05-23T19:00:00.000Z').toISOString();
-        const endTime = new Date('2025-05-23T19:20:00.000Z').toISOString();
-        console.log(`[GasUtilizationHistogram fetchData] FIXED Time window: after ${startTime} and before or at ${endTime}`);
+        // Step 1: Get the most recent record's timestamp
+        const { data: latestRecord, error: latestRecordError } = await supabase
+          .from('gas_utilization_samples')
+          .select('block_timestamp')
+          .eq('subnet_id', subnetId)
+          .order('block_timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
+        if (latestRecordError) throw latestRecordError;
+
+        if (!latestRecord || !latestRecord.block_timestamp) {
+          console.log('[GasUtilizationHistogram fetchData] No gas utilization data found for this subnet.');
+          setHistogramData([]);
+          setLoading(false);
+          return;
+        }
+
+        const latestDataTimestamp = new Date(latestRecord.block_timestamp);
+        const windowEnd = latestDataTimestamp;
+        const windowStart = new Date(windowEnd.getTime() - 60 * 60 * 1000); // Last 60 minutes
+
+        console.log(`[GasUtilizationHistogram fetchData] Dynamic Time window: ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
+
+        // Step 2: Fetch records in the 1-hour window
         const { data, error: dbError } = await supabase
           .from('gas_utilization_samples')
           .select('block_timestamp, utilization_percentage')
           .eq('subnet_id', subnetId)
-          .gte('block_timestamp', startTime)
-          .lte('block_timestamp', endTime)
+          .gte('block_timestamp', windowStart.toISOString())
+          .lte('block_timestamp', windowEnd.toISOString())
           .order('block_timestamp', { ascending: false });
 
         console.log('[GasUtilizationHistogram fetchData] Supabase raw response data:', JSON.stringify(data, null, 2));
@@ -102,7 +123,7 @@ const GasUtilizationHistogram: React.FC<GasUtilizationHistogramProps> = ({ subne
 
   const chart = (
     <ResponsiveContainer width="100%" height={150}>
-      <BarChart data={histogramData} margin={{ top: 5, right: 0, left: -25, bottom: 5 }}>
+      <BarChart data={histogramData} margin={{ top: 5, right: 0, left: -25, bottom: 5 }} barCategoryGap={"5%"}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color-muted)" />
         <XAxis dataKey="time" fontSize={10} stroke="var(--text-slate-50, #F8FAFC)" />
         <YAxis unit="%" fontSize={10} stroke="var(--text-slate-50, #F8FAFC)" />
@@ -128,48 +149,27 @@ const GasUtilizationHistogram: React.FC<GasUtilizationHistogramProps> = ({ subne
   
   console.log(`[GasUtilizationHistogram Render] Loading: ${loading}, Error: ${error}, HistogramData Length: ${histogramData.length}`);
 
+  const cardTitle = "Gas Load (Last Hour)";
+
   if (loading) {
-      return (
-          <MetricCard 
-              title="Gas Load (19:00-19:20)"
-              icon={<SlidersHorizontal size={24} />}
-              loading={true}
-          />
-      );
+      return ( <MetricCard title={cardTitle} icon={<SlidersHorizontal size={24} />} loading={true} /> );
   }
 
   if (error) {
-      return (
-          <MetricCard 
-              title="Gas Load (19:00-19:20)"
-              value="Error"
-              icon={<SlidersHorizontal size={24} />}
-              tooltipText={error}
-              loading={false}
-          />
-      );
+      return ( <MetricCard title={cardTitle} value="Error" icon={<SlidersHorizontal size={24} />} tooltipText={error} loading={false} /> );
   }
   
   if (!subnetId && !loading && !error) { 
-      return (
-          <MetricCard 
-              title="Gas Load (19:00-19:20)"
-              value="-"
-              icon={<SlidersHorizontal size={24} />}
-              tooltipText="Select a subnet to view gas utilization data."
-              loading={false}
-              chart={<div className="text-center text-sm text-[var(--text-secondary)]">No subnet selected</div>}
-          />
-      );
+      return ( <MetricCard title={cardTitle} value="-" icon={<SlidersHorizontal size={24} />} tooltipText="Select a subnet to view gas utilization data." loading={false} chart={<div className="h-[150px] flex items-center justify-center text-center text-sm text-[var(--text-secondary)]">No subnet selected</div>} /> );
   }
 
   return (
     <MetricCard
-      title="Gas Load (19:00-19:20)"
+      title={cardTitle}
       value={displayValue}
       icon={<SlidersHorizontal size={24} />}
-      chart={histogramData.length > 0 ? chart : <div className="text-center text-sm text-[var(--text-secondary)]">{subnetId ? 'No data for 19:00-19:20' : 'Select a subnet'}</div>}
-      tooltipText="Average % gas limit used by blocks in each minute (2025-05-23 19:00-19:20 UTC)"
+      chart={histogramData.length > 0 ? chart : <div className="h-[150px] flex items-center justify-center text-center text-sm text-[var(--text-secondary)]">{subnetId ? 'No data for the last hour' : 'Select a subnet'}</div>}
+      tooltipText="Average % gas limit used by blocks in each minute over the last hour."
       loading={loading} 
     />
   );

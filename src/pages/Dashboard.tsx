@@ -17,6 +17,8 @@ import Erc20TransfersWidget from '../components/metrics/Erc20TransfersWidget';
 // import Erc721TransfersWidget from '../components/metrics/Erc721TransfersWidget'; // Removed
 import GasUtilizationHistogram from '../components/metrics/GasUtilizationHistogram';
 import MetricCard from '../components/metrics/MetricCard'; // For skeleton
+// NEW: Zustand store to broadcast the selected subnet globally
+import { useAppStore, AppState } from '../store/useAppStore';
 
 const Dashboard: React.FC = () => {
   const [subnetsLoading, setSubnetsLoading] = useState(true);
@@ -27,6 +29,7 @@ const Dashboard: React.FC = () => {
   const [selectedSubnet, setSelectedSubnet] = useState<Subnet | null>(null);
   const [showSubnetDropdown, setShowSubnetDropdown] = useState(false);
   const { user } = useAuth();
+  const setSelectedSubnetIdGlobal = useAppStore((state: AppState) => state.setSelectedSubnetId);
 
   // Removed old individual metric states: averageTps, averageBlockTime, latestBlockNumber, mockData
   // Data fetching for these is now in respective widgets
@@ -54,6 +57,7 @@ const Dashboard: React.FC = () => {
         setSubnets(data);
         if (!selectedSubnet || !data.find(s => s.id === selectedSubnet.id)) { // if no subnet selected or current one is not in the new list
             setSelectedSubnet(data[0]);
+            setSelectedSubnetIdGlobal(data[0].id); // Update global store as well
         }
       } else {
         setSubnets([]);
@@ -92,6 +96,10 @@ const Dashboard: React.FC = () => {
     setSelectedSubnet(subnet);
     setShowSubnetDropdown(false);
     // Widgets will automatically update due to change in selectedSubnet.id prop
+
+    // Broadcast the selection so that AskAva (and potentially other widgets)
+    // can reuse the same context without prop-drilling.
+    setSelectedSubnetIdGlobal(subnet.id);
   };
 
   // Skeleton for individual cards (can be part of MetricCard itself)

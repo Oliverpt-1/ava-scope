@@ -32,14 +32,36 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
       setLoading(true);
       setError(null);
       try {
-        const now = new Date();
-        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        // Step 1: Get the most recent record's timestamp for the subnet
+        const { data: latestRecord, error: latestRecordError } = await supabase
+          .from('erc_transfer_counts')
+          .select('block_timestamp')
+          .eq('subnet_id', subnetId)
+          .order('block_timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
+        if (latestRecordError) throw latestRecordError;
+
+        if (!latestRecord || !latestRecord.block_timestamp) {
+          // No data for this subnet, set defaults and return
+          setTotalTransfers(0);
+          setTransferHistory([]);
+          setLoading(false);
+          return;
+        }
+
+        const latestDataTimestamp = new Date(latestRecord.block_timestamp);
+        const windowEnd = latestDataTimestamp;
+        const windowStart = new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
+
+        // Step 2: Fetch records in the 24-hour window ending at the most recent record's timestamp
         const { data, error: dbError } = await supabase
           .from('erc_transfer_counts')
           .select('block_timestamp, erc20_transfers')
           .eq('subnet_id', subnetId)
-          .gte('block_timestamp', twentyFourHoursAgo.toISOString());
+          .gte('block_timestamp', windowStart.toISOString())
+          .lte('block_timestamp', windowEnd.toISOString());
         
         if (dbError) throw dbError;
 
@@ -52,7 +74,8 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
         // Initialize 24 hourly slots for the last 24 hours
         const hourlySlots: { [key: string]: TransferDataPoint } = {};
         for (let i = 0; i < 24; i++) {
-          const hourDate = new Date(now.getTime() - i * 60 * 60 * 1000);
+          // Generate slots for the 24 hours leading up to latestDataTimestamp's hour
+          const hourDate = new Date(windowEnd.getTime() - i * 60 * 60 * 1000);
           const hourKey = `${hourDate.getUTCHours().toString().padStart(2, '0')}`;
           // Use a sortable key for initial object construction if order matters before Object.entries
           // For display, we'll format 'time' later. Store epoch for sorting.

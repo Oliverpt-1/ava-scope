@@ -1,14 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, X, Send, AlertTriangle, Loader2 } from 'lucide-react';
 import { supabase } from '../utils/supabase'; // Import your Supabase client
+import { useAppStore, AppState } from '../store/useAppStore';
 
 // Assume you have a Zustand store and hook for the current subnet ID
 // Replace this with your actual hook.
 // import { useAppStore } from '../store'; // Example import
 const useCurrentSubnetId = (): string | null => {
-  // const subnetId = useAppStore((state) => state.selectedSubnetId);
-  // return subnetId;
-  return 'subnet-placeholder-123'; // Placeholder for now
+  return useAppStore((state: AppState) => state.selectedSubnetId);
 };
 
 interface ChatMessage {
@@ -154,7 +153,7 @@ const AskAva: React.FC = () => {
 
       {/* Chat modal */}
       {isOpen && (
-        <div className="fixed bottom-20 right-4 w-full max-w-md bg-slate-800 rounded-lg shadow-xl border border-slate-700 flex flex-col z-40">
+        <div className="fixed bottom-20 right-4 w-full max-w-md bg-slate-800 rounded-lg shadow-xl border border-slate-700 flex flex-col z-40 max-h-[70vh]">
           <div className="flex items-center justify-between p-4 border-b border-slate-700">
             <div className="flex items-center gap-3">
               <img
@@ -173,7 +172,7 @@ const AskAva: React.FC = () => {
             </button>
           </div>
 
-          <div ref={chatContainerRef} className="p-4 flex-1 h-96 overflow-y-auto space-y-4">
+          <div ref={chatContainerRef} className="p-4 flex-1 overflow-y-auto space-y-4">
             {chatHistory.map((chat) => (
               <div key={chat.id} className={`flex ${chat.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
