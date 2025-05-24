@@ -389,36 +389,40 @@ export const getAllSubnetsForPolling = async (): Promise<PollingSubnetInfo[]> =>
 };
 
 // This function is called by the worker after fetching live metrics via getMetrics.
-// It should only store metrics that are directly derived from that call (TPS, Blocktime).
-// GasUtilization, ERC20, ERC721 are processed and stored block-by-block by the worker itself.
+// It will now construct a single payload for the blocktime_samples table,
+// including TPS, block time, and the new metrics: gas_used, block_size_bytes, transaction_count.
 export const addDirectMetricsSamples = async (subnetId: string, liveMetrics: SubnetMetrics): Promise<void> => {
-  const promises = [];
-
-  if (liveMetrics.tps !== null) {
-    promises.push(addTpsSample(subnetId, liveMetrics.tps));
-  }
-  
-  // Use lastBlockTimeSeconds and latestBlock from the refactored SubnetMetrics
   const bp = liveMetrics.blockProduction;
-  if (bp.lastBlockTimeSeconds !== null && bp.latestBlock !== null) {
-    // We need a timestamp for the blocktime sample. 
-    // If getMetrics doesn't provide the latest block's exact timestamp, we use current time.
-    // Ideally, the worker would pass the actual block timestamp here.
-    const blockTimestampForSample = new Date().toISOString(); 
-    promises.push(addBlocktimeSample(
-      subnetId, 
-      bp.latestBlock, 
-      bp.lastBlockTimeSeconds, 
-      blockTimestampForSample 
-    ));
+
+  if (bp.latestBlock === null || bp.latestBlockTimestamp === null) {
+    console.warn(`[SupabaseHelper:addDirectMetricsSamples] Subnet ${subnetId}: Missing latestBlock or latestBlockTimestamp. Cannot add comprehensive blocktime sample.`);
+    return;
   }
-  
+
+  const blocktimeSamplePayload: any = {
+    subnet_id: subnetId,
+    block_number: bp.latestBlock,
+    block_timestamp: new Date(bp.latestBlockTimestamp * 1000).toISOString(),
+  };
+
+  if (bp.lastBlockTimeSeconds !== null) {
+    blocktimeSamplePayload.block_time_seconds = bp.lastBlockTimeSeconds;
+  }
+  if (bp.gasUsed !== null) {
+    blocktimeSamplePayload.gas_used = bp.gasUsed;
+  }
+  if (bp.blockSize !== null) {
+    blocktimeSamplePayload.block_size_bytes = bp.blockSize;
+  }
+  if (bp.txCount !== null) {
+    blocktimeSamplePayload.transaction_count = bp.txCount;
+  }
+
   try {
-    if (promises.length > 0) {
-        await Promise.all(promises);
-    }
+    console.log(`[SupabaseHelper:addDirectMetricsSamples] Subnet ${subnetId}: Preparing to insert comprehensive blocktime sample:`, JSON.stringify(blocktimeSamplePayload));
+    await insertMetric('blocktime_samples', blocktimeSamplePayload, subnetId);
   } catch (error) {
-    console.error(`Fetch: Error in Promise.all for direct metric samples, subnet ${subnetId}:`, error);
+    console.error(`[SupabaseHelper:addDirectMetricsSamples] Subnet ${subnetId}: Error inserting comprehensive blocktime sample:`, error);
   }
 };
 

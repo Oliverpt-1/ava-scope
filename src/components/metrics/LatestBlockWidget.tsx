@@ -7,6 +7,9 @@ import { Package } from 'lucide-react';
 interface BlockInfo {
   number: number | string;
   timestamp: string;
+  transactionCount?: number | string;
+  gasUsed?: number | string;
+  blockSize?: string;
 }
 
 interface LatestBlockWidgetProps {
@@ -33,10 +36,10 @@ const LatestBlockWidget: React.FC<LatestBlockWidgetProps> = ({ subnetId }) => {
       setLoading(true);
       setError(null);
       try {
-        console.log(`[LatestBlockWidget] Fetching latest block details (timestamp, number) for subnetId: ${subnetId}`);
+        console.log(`[LatestBlockWidget] Fetching latest block details (timestamp, number, new metrics) for subnetId: ${subnetId}`);
         const { data: latestBlockData, error: latestBlockError } = await supabase
           .from('blocktime_samples')
-          .select('block_number, block_timestamp')
+          .select('block_number, block_timestamp, transaction_count, gas_used, block_size_bytes')
           .eq('subnet_id', subnetId)
           .order('block_timestamp', { ascending: false })
           .limit(1)
@@ -50,9 +53,12 @@ const LatestBlockWidget: React.FC<LatestBlockWidgetProps> = ({ subnetId }) => {
         }
 
         if (latestBlockData) {
-          const newBlockInfo = {
+          const newBlockInfo: BlockInfo = {
             number: latestBlockData.block_number,
             timestamp: new Date(latestBlockData.block_timestamp).toLocaleString(),
+            transactionCount: latestBlockData.transaction_count !== null ? latestBlockData.transaction_count.toLocaleString() : 'N/A',
+            gasUsed: latestBlockData.gas_used !== null ? latestBlockData.gas_used.toLocaleString() : 'N/A',
+            blockSize: latestBlockData.block_size_bytes !== null ? `${(latestBlockData.block_size_bytes / 1024).toFixed(2)} KB` : 'N/A',
           };
           setBlockInfo(newBlockInfo);
           console.log('[LatestBlockWidget] Set blockInfo:', newBlockInfo);
@@ -97,17 +103,38 @@ const LatestBlockWidget: React.FC<LatestBlockWidgetProps> = ({ subnetId }) => {
     const displayBlockNumber = blockStats?.latestBlockNumber ?? blockInfo?.number ?? 'N/A';
 
     return (
-      <div className="space-y-1 text-sm">
-        <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Block #:</span> <span className="font-mono text-[var(--text-primary)]">{displayBlockNumber}</span></div>
-        {blockStats?.averageBlockTime !== null && blockStats?.averageBlockTime !== undefined && (
-          <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Avg Block Time (500):</span> <span className="font-mono text-[var(--text-primary)]">{blockStats.averageBlockTime} s</span></div>
+      <div>
+        {displayBlockNumber !== 'N/A' && (
+          <div className="text-left py-2">
+            <span className="font-semibold text-3xl text-[var(--text-primary)]">#{displayBlockNumber.toLocaleString()}</span>
+          </div>
         )}
-        {blockInfo && (
-          <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Timestamp (Latest):</span> <span className="font-mono text-[var(--text-primary)]">{blockInfo.timestamp}</span></div>
+        {displayBlockNumber === 'N/A' && !loading && (
+             <div className="text-left py-2">
+                <span className="font-semibold text-3xl text-[var(--text-secondary)]"># N/A</span>
+            </div>
         )}
-        {(!blockStats?.averageBlockTime && !loading && !error && subnetId) && (
-             <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Avg Block Time (500):</span> <span className="font-mono text-[var(--text-primary)]">N/A</span></div>
-        )}
+
+        <div className="space-y-1 text-sm pt-2">
+          {blockStats?.averageBlockTime !== null && blockStats?.averageBlockTime !== undefined && (
+            <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Avg Block Time (500):</span> <span className="font-mono text-[var(--text-primary)]">{blockStats.averageBlockTime} s</span></div>
+          )}
+          {blockInfo?.transactionCount !== undefined && (
+            <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Transactions:</span> <span className="font-mono text-[var(--text-primary)]">{blockInfo.transactionCount}</span></div>
+          )}
+          {blockInfo?.gasUsed !== undefined && (
+            <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Gas Used:</span> <span className="font-mono text-[var(--text-primary)]">{blockInfo.gasUsed}</span></div>
+          )}
+          {blockInfo?.blockSize !== undefined && (
+            <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Block Size:</span> <span className="font-mono text-[var(--text-primary)]">{blockInfo.blockSize}</span></div>
+          )}
+          {blockInfo && (
+            <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Timestamp (Latest):</span> <span className="font-mono text-[var(--text-primary)]">{blockInfo.timestamp}</span></div>
+          )}
+          {(!blockStats?.averageBlockTime && !loading && !error && subnetId && displayBlockNumber !== 'N/A') && (
+               <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Avg Block Time (500):</span> <span className="font-mono text-[var(--text-primary)]">N/A</span></div>
+          )}
+        </div>
       </div>
     );
   };
