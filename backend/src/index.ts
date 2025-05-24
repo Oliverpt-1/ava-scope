@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import subnetRoutes from './api/subnets';
 import metricsRoutes from './api/metrics';
+import askAvaRoutes from './api/askAva';
 import { authMiddleware } from './middleware/authMiddleware';
 
 dotenv.config();
@@ -15,6 +16,7 @@ app.use(express.json());
 
 app.use('/api/subnets', authMiddleware, subnetRoutes);
 app.use('/api/metrics', authMiddleware, metricsRoutes);
+app.use('/api/ask-ava', authMiddleware, askAvaRoutes);
 
 app.get('/', (req, res) => {
   res.send('AvaScope API is running!');
