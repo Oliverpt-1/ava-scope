@@ -1,25 +1,91 @@
 import express, { Request, Response, Router, NextFunction } from 'express';
 import OpenAI from 'openai';
+import {
+  getAvaContextLatestTps,
+  getAvaContextLatestBlockInfo,
+  getAvaContext24hErc20TransferTotal,
+  getAvaContextCurrentGasLoad,
+  // You might also want a helper to get basic subnet details like its name, if not already available
+  // getSubnetDetails, // Assuming you might have/want this
+} from '../lib/supabaseHelpers'; // Adjust path if your helpers are elsewhere
 
 // Ensure the OpenAI API key is configured from .env
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_KEY,
 });
 
-// Placeholder function to simulate fetching context-specific data
 async function getContextualData(subnetId: string, question: string): Promise<string> {
-  console.log(`[AskAva API] Fetching contextual data for subnet: ${subnetId} related to question: "${question}"`);
-  // Simulate different responses based on the question for placeholder purposes
-  if (question.toLowerCase().includes('validator status')) {
-    return `Placeholder: The validator for subnet ${subnetId} appears to be running normally. Recent uptime: 99.9%.`;
+  console.log(`[AskAva API] Fetching REAL contextual data for subnet: ${subnetId} related to question: "${question}"`);
+  let contextParts: string[] = [];
+
+  try {
+    // Fetch all context data concurrently
+    const [tpsData, blockInfo, ercData, gasLoadData /*, subnetDetails */] = await Promise.all([
+      getAvaContextLatestTps(subnetId),
+      getAvaContextLatestBlockInfo(subnetId),
+      getAvaContext24hErc20TransferTotal(subnetId),
+      getAvaContextCurrentGasLoad(subnetId),
+      // getSubnetDetails(subnetId), // Example if you fetch subnet name/type too
+    ]);
+
+    // Subnet Name (Example - if you fetch it)
+    // if (subnetDetails && subnetDetails.name) {
+    //   contextParts.push(`- Subnet Name: ${subnetDetails.name}`);
+    // }
+
+    // Transaction Throughput
+    if (tpsData && tpsData.currentTps !== null) {
+      contextParts.push(`- Current Transaction Throughput (TPS): ${tpsData.currentTps}`);
+    } else {
+      contextParts.push("- Current Transaction Throughput (TPS): Data not available");
+    }
+
+    // Latest Block Info
+    if (blockInfo) {
+      contextParts.push(`- Latest Block Number: ${blockInfo.block_number || 'N/A'}`);
+      if (blockInfo.block_timestamp) {
+        contextParts.push(`  - Timestamp: ${new Date(blockInfo.block_timestamp).toLocaleString()}`)
+      }
+      if (blockInfo.block_time_seconds !== null) {
+        contextParts.push(`  - Avg Block Time (around this block): ${Number(blockInfo.block_time_seconds).toFixed(2)}s`);
+      }
+      if (blockInfo.transaction_count !== null) {
+        contextParts.push(`  - Transactions in Block: ${blockInfo.transaction_count}`);
+      }
+      if (blockInfo.gas_used !== null) {
+        contextParts.push(`  - Gas Used in Block: ${blockInfo.gas_used.toLocaleString()}`);
+      }
+      if (blockInfo.block_size_bytes !== null) {
+        contextParts.push(`  - Block Size: ${(blockInfo.block_size_bytes / 1024).toFixed(2)} KB`);
+      }
+    } else {
+      contextParts.push("- Latest Block Info: Data not available");
+    }
+
+    // ERC20 Transfers (24h)
+    if (ercData && ercData.totalTransfers !== null) {
+      contextParts.push(`- ERC20 Transfers (last 24h): ${ercData.totalTransfers.toLocaleString()}`);
+    } else {
+      contextParts.push("- ERC20 Transfers (last 24h): Data not available");
+    }
+
+    // Gas Load
+    if (gasLoadData && gasLoadData.currentLoadPercent !== null) {
+      contextParts.push(`- Current Gas Load: ${gasLoadData.currentLoadPercent}%`);
+    } else {
+      contextParts.push("- Current Gas Load: Data not available");
+    }
+
+  } catch (error: any) {
+    console.error(`[AskAva API] Error fetching some contextual data for subnet ${subnetId}:`, error.message);
+    contextParts.push("Note: There was an issue fetching some live data details for the subnet.");
   }
-  if (question.toLowerCase().includes('tps')) {
-    return `Placeholder: Current TPS for subnet ${subnetId} is 45.6. The peak TPS in the last hour was 60.2.`;
+  
+  if (contextParts.length === 0) {
+    return "No specific dashboard data could be fetched for this subnet at the moment.";
   }
-  if (question.toLowerCase().includes('block height')) {
-    return `Placeholder: The current block height for subnet ${subnetId} is 1,234,567.`;
-  }
-  return `Placeholder: General information about subnet ${subnetId}. It is configured for high throughput asset transfers and supports smart contracts.`;
+
+  return "Current Subnet Dashboard Overview:\n" + contextParts.join("\n");
 }
 
 const router = Router();

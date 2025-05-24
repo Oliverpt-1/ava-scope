@@ -476,4 +476,67 @@ export const insertErcTransferCountsBatch = async (records: ErcTransferBlockData
   } catch (error) {
     console.error("[SupabaseHelper:insertErcTransferCountsBatch] Network or other error during batch insert:", error);
   }
+};
+
+// --- New Helper Functions for AskAva Context ---
+
+export const getAvaContextLatestTps = async (subnetId: string): Promise<{ currentTps: number | null }> => {
+  const { data, error } = await supabase
+    .from('tps_samples')
+    .select('tps_value')
+    .eq('subnet_id', subnetId)
+    .order('sampled_at', { ascending: false })
+    .limit(1)
+    .single();
+  if (error && error.code !== 'PGRST116') { // PGRST116: row not found, not an error for us here
+    console.error(`[AvaContext] Error fetching latest TPS for ${subnetId}:`, error.message);
+    return { currentTps: null };
+  }
+  return { currentTps: data ? parseFloat(data.tps_value.toFixed(1)) : null };
+};
+
+export const getAvaContextLatestBlockInfo = async (subnetId: string): Promise<any | null> => {
+  const { data, error } = await supabase
+    .from('blocktime_samples') // This table seems to have the most comprehensive recent block data
+    .select('block_number, block_timestamp, block_time_seconds, gas_used, block_size_bytes, transaction_count')
+    .eq('subnet_id', subnetId)
+    .order('block_timestamp', { ascending: false })
+    .limit(1)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error(`[AvaContext] Error fetching latest block info for ${subnetId}:`, error.message);
+    return null;
+  }
+  return data;
+};
+
+export const getAvaContext24hErc20TransferTotal = async (subnetId: string): Promise<{ totalTransfers: number | null }> => {
+  const startTime = calculateStartTime({ hours: 24 });
+  const { data, error } = await supabase
+    .from('erc20_transfer_counts')
+    .select('transfer_count')
+    .eq('subnet_id', subnetId)
+    .gte('minute_timestamp', startTime);
+
+  if (error) {
+    console.error(`[AvaContext] Error fetching 24h ERC20 transfers for ${subnetId}:`, error.message);
+    return { totalTransfers: null };
+  }
+  const total = data ? data.reduce((sum, record) => sum + record.transfer_count, 0) : 0;
+  return { totalTransfers: total };
+};
+
+export const getAvaContextCurrentGasLoad = async (subnetId: string): Promise<{ currentLoadPercent: number | null }> => {
+  const { data, error } = await supabase
+    .from('gas_utilization_samples')
+    .select('utilization_percentage')
+    .eq('subnet_id', subnetId)
+    .order('block_timestamp', { ascending: false })
+    .limit(1)
+    .single();
+  if (error && error.code !== 'PGRST116') {
+    console.error(`[AvaContext] Error fetching current gas load for ${subnetId}:`, error.message);
+    return { currentLoadPercent: null };
+  }
+  return { currentLoadPercent: data ? parseFloat(data.utilization_percentage.toFixed(1)) : null };
 }; 
