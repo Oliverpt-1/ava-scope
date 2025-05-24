@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
+import { BarChart, Bar, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import MetricCard from './MetricCard';
 import { supabase } from '../../utils/supabase';
 import { ArrowRightLeft } from 'lucide-react';
 
 interface TransferDataPoint {
-  time: string; // e.g., "HH:00" for hour
+  time: string; // e.g., "HH:00" for hour, or just "HH" for display
   count: number;
+  fullTime?: string; // For sorting if needed, e.g. ISO-like string for the hour
 }
 
 interface Erc20TransfersWidgetProps {
@@ -22,7 +23,7 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
   useEffect(() => {
     if (!subnetId) {
       setLoading(false);
-      setTotalTransfers(0); // Explicitly set to 0 if no subnetId
+      setTotalTransfers(0);
       setTransferHistory([]);
       return;
     }
@@ -31,13 +32,14 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
       setLoading(true);
       setError(null);
       try {
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const now = new Date();
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
         const { data, error: dbError } = await supabase
           .from('erc_transfer_counts')
           .select('block_timestamp, erc20_transfers')
           .eq('subnet_id', subnetId)
-          .gte('block_timestamp', twentyFourHoursAgo);
+          .gte('block_timestamp', twentyFourHoursAgo.toISOString());
         
         if (dbError) throw dbError;
 
@@ -47,33 +49,42 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
         }
         setTotalTransfers(calculatedTotal);
         
-        const aggregatedHistory: { [key: string]: number } = {}; // Key will be 'YYYY-MM-DDTHH'
+        // Initialize 24 hourly slots for the last 24 hours
+        const hourlySlots: { [key: string]: TransferDataPoint } = {};
+        for (let i = 0; i < 24; i++) {
+          const hourDate = new Date(now.getTime() - i * 60 * 60 * 1000);
+          const hourKey = `${hourDate.getUTCHours().toString().padStart(2, '0')}`;
+          // Use a sortable key for initial object construction if order matters before Object.entries
+          // For display, we'll format 'time' later. Store epoch for sorting.
+          hourlySlots[hourKey] = { 
+            time: hourKey, // Will be used as label, e.g., "10"
+            count: 0,
+            fullTime: `${hourDate.getUTCFullYear()}-${(hourDate.getUTCMonth()+1).toString().padStart(2, '0')}-${hourDate.getUTCDate().toString().padStart(2, '0')}T${hourKey}:00:00Z`
+          };
+        }
+
         if (data) {
           data.forEach(item => {
             const currentItemCount = Number(item.erc20_transfers) || 0;
             if (currentItemCount > 0) { 
               const date = new Date(item.block_timestamp);
-              // Key by UTC hour for 24 data points
-              const hourKey = `${date.getUTCHours().toString().padStart(2, '0')}:00`;
-              aggregatedHistory[hourKey] = (aggregatedHistory[hourKey] || 0) + currentItemCount;
+              const hourKey = `${date.getUTCHours().toString().padStart(2, '0')}`;
+              if (hourlySlots[hourKey]) {
+                hourlySlots[hourKey].count += currentItemCount;
+              }
             }
           });
         }
         
-        // Create a full list of the last 24 hours to ensure all slots are present if needed, or just use actual data.
-        // For simplicity, we'll just map the aggregated data we have.
-        const processedHistory = Object.entries(aggregatedHistory)
-            .map(([time, count]) => ({ time, count }))
-            // Sort by time to ensure the chart displays chronologically if hours are not sequential from aggregation
-            .sort((a,b) => a.time.localeCompare(b.time)); 
-            // .slice(-24); // Might not be needed if keys are unique for 24h
+        const processedHistory = Object.values(hourlySlots)
+            .sort((a,b) => new Date(a.fullTime!).getTime() - new Date(b.fullTime!).getTime()); 
 
         setTransferHistory(processedHistory);
 
       } catch (err: any) {
         console.error(`Error fetching ERC20 transfer data for subnet ${subnetId}:`, err);
         setError("Failed to load ERC20 transfer data.");
-        setTotalTransfers(0); // Set to 0 on error
+        setTotalTransfers(0);
         setTransferHistory([]);
       } finally {
         setLoading(false);
@@ -81,29 +92,44 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
     };
 
     fetchData();
-    const intervalId = setInterval(fetchData, 5 * 60000); 
+    const intervalId = setInterval(fetchData, 5 * 60 * 1000); 
     return () => clearInterval(intervalId);
   }, [subnetId]);
 
   const chart = (
-    // Increased height for better visibility of hourly data
-    <ResponsiveContainer width="100%" height={100}> 
-      <BarChart data={transferHistory}>
+    <ResponsiveContainer width="100%" height={150}>
+      <BarChart data={transferHistory} barGap={1} barCategoryGap="10%">
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color-secondary, #374151)"/>
         <RechartsTooltip 
-          contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
+          contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '0.25rem'}}
           itemStyle={{ color: 'var(--text-primary)' }}
-          cursor={{ fill: 'var(--bg-primary)' }}
+          labelStyle={{ color: 'var(--text-secondary)'}}
+          cursor={{ fill: 'rgba(128, 128, 128, 0.1)' }}
+          labelFormatter={(label) => `${label}:00 UTC`}
+          formatter={(value: number) => [value.toLocaleString(), 'Transfers']}
         />
-        {/* Optionally, show XAxis with formatted hour if desired, or keep hidden */}
-        <XAxis dataKey="time" fontSize={10} stroke="var(--text-slate-50, #F8FAFC)" interval="preserveStartEnd" tickFormatter={(tick) => tick.substring(0,2)} />
-        <YAxis fontSize={10} stroke="var(--text-slate-50, #F8FAFC)" allowDecimals={false} />
-        {/* Changed fill to red */}
-        <Bar dataKey="count" fill="var(--text-red-500, #EF4444)" barSize={15} /> 
+        <XAxis 
+          dataKey="time" 
+          fontSize={10} 
+          stroke="var(--text-slate-400, #94A3B8)"
+          axisLine={{stroke: 'var(--border-color-secondary, #374151)'}}
+          tickLine={{stroke: 'var(--text-slate-400, #94A3B8)'}}
+          interval={0}
+        />
+        <YAxis 
+          fontSize={10} 
+          stroke="var(--text-slate-400, #94A3B8)" 
+          axisLine={{stroke: 'var(--border-color-secondary, #374151)'}}
+          tickLine={{stroke: 'var(--text-slate-400, #94A3B8)'}}
+          allowDecimals={false} 
+          tickCount={4}
+          width={35}
+        />
+        <Bar dataKey="count" fill="var(--color-red-500, #EF4444)" radius={[3, 3, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
 
-  // Display 0 if totalTransfers is 0 or null (after loading and no error)
   const displayValue = totalTransfers !== null ? totalTransfers.toLocaleString() : '0';
   
   if (error && !loading && subnetId) {
@@ -111,14 +137,13 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
         <MetricCard 
             title="ERC20 Transfers (24h)"
             value="Error"
-            icon={<ArrowRightLeft size={24} />}
+            icon={<ArrowRightLeft size={24} color="var(--color-red-500, #EF4444)"/>}
             tooltipText={error}
             loading={false}
         />
     );
   }
   
-  // If no subnet selected, show 0 explicitly
   if (!subnetId && !loading) {
       return (
           <MetricCard 
@@ -127,7 +152,7 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
               icon={<ArrowRightLeft size={24} />}
               tooltipText="Select a subnet to view ERC20 transfer data."
               loading={false}
-              chart={<div className="text-center text-sm text-[var(--text-secondary)]">No subnet selected</div>}
+              chart={<div className="h-[150px] flex items-center justify-center text-center text-sm text-[var(--text-secondary)]">No subnet selected</div>}
           />
       );
   }
@@ -136,8 +161,8 @@ const Erc20TransfersWidget: React.FC<Erc20TransfersWidgetProps> = ({ subnetId })
     <MetricCard
       title="ERC20 Transfers (24h)"
       value={displayValue}
-      icon={<ArrowRightLeft size={24} />}
-      chart={subnetId && transferHistory.length > 0 ? chart : <div className="h-[100px] flex items-center justify-center text-center text-sm text-[var(--text-secondary)]">{ (loading && subnetId) ? 'Loading chart...' : 'No transfer data in the last 24h'}</div>}
+      icon={<ArrowRightLeft size={24} color={totalTransfers && totalTransfers > 0 ? "var(--color-red-500, #EF4444)" : undefined}/>}
+      chart={subnetId && transferHistory.length > 0 ? chart : <div className="h-[150px] flex items-center justify-center text-center text-sm text-[var(--text-secondary)]">{ (loading && subnetId) ? 'Loading chart...' : 'No transfer data in the last 24h'}</div>}
       tooltipText="Total ERC20 token transfers in the past 24 hours, with a bar chart of transfers per hour."
       loading={loading}
     />

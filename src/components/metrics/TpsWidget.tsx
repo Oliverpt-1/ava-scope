@@ -37,35 +37,31 @@ const TpsWidget: React.FC<TpsWidgetProps> = ({ subnetId }) => {
       setLoading(true);
       setError(null);
       try {
-        // Fetch current TPS (latest single sample)
-        const { data: currentData, error: currentError } = await supabase
-          .from('tps_samples')
-          .select('tps_value') 
-          .eq('subnet_id', subnetId)
-          .order('sampled_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (currentError) {
-          if (currentError.code !== 'PGRST116') throw currentError;
-          setCurrentTps(null);
-        } else {
-          setCurrentTps(currentData?.tps_value ?? null);
-        }
-        
-        // Fetch the latest 100 samples for the moving average chart
+        // Fetch the latest 100 samples for the moving average chart AND overall average
         const { data: latest100Samples, error: historyError } = await supabase
           .from('tps_samples')
-          .select('sampled_at, tps_value') 
+          .select('sampled_at, tps_value')
           .eq('subnet_id', subnetId)
           .order('sampled_at', { ascending: false }) // Fetch latest first
           .limit(100);
 
-        if (historyError) throw historyError;
-        
-        console.log(`[TpsWidget] Fetched ${latest100Samples?.length || 0} raw samples for moving average history.`);
+        if (historyError) {
+          if (historyError.code === 'PGRST116') { // No rows found
+            console.log('[TpsWidget] No TPS samples found for this subnet.');
+            setCurrentTps(null);
+            setTpsHistory([]);
+          } else {
+            throw historyError;
+          }
+        } else if (latest100Samples && latest100Samples.length > 0) {
+          console.log(`[TpsWidget] Fetched ${latest100Samples.length} raw samples.`);
 
-        if (latest100Samples && latest100Samples.length > 0) {
+          // Calculate the average of the fetched samples for the main display
+          const sumOfTps = latest100Samples.reduce((acc, sample) => acc + sample.tps_value, 0);
+          const averageTps = sumOfTps / latest100Samples.length;
+          setCurrentTps(averageTps);
+          
+          // Calculate moving averages for the chart
           const movingAverages: TpsDataPoint[] = [];
           const windowSize = 4;
 
@@ -78,21 +74,19 @@ const TpsWidget: React.FC<TpsWidgetProps> = ({ subnetId }) => {
             const lastSampleInWindow = window[0]; // Since data is latest first, window[0] is the latest in this window
             
             movingAverages.push({
-              // Use the timestamp of the last data point in the window for the x-axis
-              epochTime: new Date(lastSampleInWindow.sampled_at).getTime(), 
+              epochTime: new Date(lastSampleInWindow.sampled_at).getTime(),
               time: new Date(lastSampleInWindow.sampled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
               tps: parseFloat(average.toFixed(1)),
             });
           }
           
-          // The chart expects data in chronological order (oldest to newest)
-          // so we reverse the movingAverages array.
-          const chronologicalMovingAverages = movingAverages.reverse(); 
+          const chronologicalMovingAverages = movingAverages.reverse();
 
-          console.log(`[TpsWidget] Processed ${chronologicalMovingAverages.length} moving average data points for the chart:`, chronologicalMovingAverages);
-          setTpsHistory(chronologicalMovingAverages.slice(-25)); // Show up to the last ~25 points of the moving average
+          console.log(`[TpsWidget] Processed ${chronologicalMovingAverages.length} moving average data points for the chart.`);
+          setTpsHistory(chronologicalMovingAverages.slice(-25));
         } else {
-          console.log('[TpsWidget] No historical data fetched for moving average.');
+          console.log('[TpsWidget] No historical data fetched.');
+          setCurrentTps(null);
           setTpsHistory([]);
         }
 
