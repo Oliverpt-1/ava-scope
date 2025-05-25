@@ -1,6 +1,6 @@
 # AvaScope: Avalanche Subnet Monitoring Dashboard
 
-AvaScope is a comprehensive monitoring dashboard for Avalanche subnets. It provides real-time and historical insights into various subnet metrics, helping developers and operators track performance, health, and activity of their Avalanche-based blockchains.
+AvaScope is a comprehensive, AI-powered monitoring dashboard for Avalanche subnets or L1's. Specifically for this hackathon, I referred to them as subnets, as I tested this on the Subnet beam. However, it is extendable to avalanche L1's as well. It provides real-time and historical insights into various subnet metrics, helping developers and operators track performance, health, and activity of their Avalanche-based blockchains. The data is feched and pushed into a database, so that the AI-Agent Ava is able to actually access and utilize this data in her analysis.
 
 ## Table of Contents
 
@@ -35,7 +35,7 @@ AvaScope is a comprehensive monitoring dashboard for Avalanche subnets. It provi
 
 ## Architecture Overview
 
-AvaScope consists of three main parts:
+AvaScope consists of four main parts:
 
 1.  **Frontend:** A React application (built with Vite and TypeScript) that provides the user interface for displaying subnet metrics and managing subnets.
 2.  **Backend API Server:** An Express.js server (TypeScript) that serves as an intermediary for certain actions and can be expanded for more complex data processing or aggregated queries. It also includes worker processes.
@@ -47,7 +47,8 @@ AvaScope consists of three main parts:
 -   **Frontend:** React, Vite, TypeScript, Tailwind CSS, Tremor (for UI components), Recharts (for charts)
 -   **Backend:** Node.js, Express.js, TypeScript
 -   **Database:** Supabase (PostgreSQL)
--   **RPC Interaction:** Axios
+-   **RPC Interaction:** Axios/RPC URL's
+    **Onchain interaction:** eth_getLogs
 -   **Staking Metrics:** `@avalabs/avacloud-sdk`
 
 ## Prerequisites
@@ -85,7 +86,7 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 # VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI...
 ```
 
-Replace `your_supabase_url` and `your_supabase_anon_key` with your actual Supabase project URL and anon key.
+The Supabase backend API's are not hosted on Render unfortunately, so testing of the backlog and real-time metrics with onboarding your own account will not be possible. However, you can run the frontend locally to get a feel for it and create your own account even/look through the UI.
 
 #### Backend (`backend/.env`)
 
@@ -126,24 +127,7 @@ npm install
 # Or if using yarn:
 # yarn install
 cd ..
-```
-
-### 4. Set Up Supabase
-
-Currently, AvaScope is designed with a self-hosted Supabase instance in mind for development, with plans for a cloud-hosted production environment.
-
--   Ensure your Supabase instance is running.
--   You will need to apply the database schema. The migrations are located in the `supabase/migrations` directory.
-
-### 5. Run Migrations
-
-Apply the database migrations to your Supabase instance. If you are using the Supabase CLI and have it linked to your local or cloud project:
-
-```bash
-supabase db push
-```
-
-Alternatively, you can apply the SQL files in the `supabase/migrations` directory directly to your database using a PostgreSQL client or the Supabase SQL editor.
+``
 
 ## Running the Application
 
@@ -214,20 +198,6 @@ The backend exposes a few API endpoints under the `/api` prefix. (Note: Authenti
 -   **`GET /api/metrics/live/:subnetId`**: Fetches live metrics for a given `subnetId` by proxying to the subnet's RPC and using the AvaCloud SDK.
 -   **`GET /api/metrics/historical/:subnetId`**: Retrieves historical aggregated metrics for a `subnetId` from the Supabase database. (Implementation may vary based on specific needs for charts).
 
-## Contributing
+## Thank you!!
 
-Contributions are welcome! Please feel free to open an issue or submit a pull request.
-
-1.  Fork the repository.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
-
-## License
-
-Distributed under the MIT License. See `LICENSE` file for more information (assuming MIT, please create a LICENSE file if one doesn't exist or specify otherwise).
-
----
-
-*This README is a starting point. Please update it as the project evolves, especially regarding the OpenAI API Key usage, production deployment details for Supabase, and any changes to the build or run processes.*
+Thanks for reading, and please feel free to make contributions / pull requests 
