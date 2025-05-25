@@ -139,36 +139,36 @@ const AskAva: React.FC = () => {
       {/* Chat button */}
       <button
         onClick={toggleChat}
-        className="fixed bottom-4 right-4 bg-red-500 text-white p-3 rounded-full shadow-lg hover:bg-red-600 transition-colors duration-200 z-50"
+        className="fixed bottom-6 right-6 bg-red-500 text-white p-4 rounded-full shadow-lg hover:bg-red-600 transition-colors duration-200 z-50"
         aria-label="Toggle Ask Ava chat"
       >
-        {isOpen ? <X size={24} /> : (
+        {isOpen ? <X size={32} /> : (
           <img
-            src="https://images.pexels.com/photos/1858175/pexels-photo-1858175.jpeg?auto=compress&cs=tinysrgb&w=400"
+            src="/Ava-Scope-Logo.png"
             alt="Ava Assistant"
-            className="w-6 h-6 object-cover rounded-full"
+            className="w-10 h-10 object-contain rounded-full"
           />
         )}
       </button>
 
       {/* Chat modal */}
       {isOpen && (
-        <div className="fixed bottom-20 right-4 w-full max-w-md bg-slate-800 rounded-lg shadow-xl border border-slate-700 flex flex-col z-40 max-h-[70vh]">
+        <div className="fixed bottom-24 right-6 w-full max-w-xl bg-slate-800 rounded-lg shadow-xl border border-slate-700 flex flex-col z-40 max-h-[80vh]">
           <div className="flex items-center justify-between p-4 border-b border-slate-700">
             <div className="flex items-center gap-3">
               <img
-                src="https://images.pexels.com/photos/1858175/pexels-photo-1858175.jpeg?auto=compress&cs=tinysrgb&w=400"
+                src="/Ava-Scope-Logo.png"
                 alt="Ava Assistant"
-                className="w-8 h-8 object-cover rounded-full"
+                className="w-10 h-10 object-contain rounded-full"
               />
-              <h3 className="text-lg font-semibold text-slate-100">Ask Ava</h3>
+              <h3 className="text-xl font-semibold text-slate-100">Ask Ava</h3>
             </div>
             <button
               onClick={() => setIsOpen(false)}
               className="text-slate-400 hover:text-slate-200"
               aria-label="Close chat"
             >
-              <X size={20} />
+              <X size={24} />
             </button>
           </div>
 
@@ -176,21 +176,21 @@ const AskAva: React.FC = () => {
             {chatHistory.map((chat) => (
               <div key={chat.id} className={`flex ${chat.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[80%] rounded-lg px-3 py-2 text-sm md:text-base ${
+                  className={`max-w-[80%] rounded-lg px-4 py-3 text-base md:text-lg ${
                     chat.sender === 'user' ? 'bg-red-500 text-white' :
                     chat.sender === 'ava' ? 'bg-slate-700 text-slate-200' :
                     'bg-yellow-600 text-yellow-50 w-full text-center' // System/Error messages
                   }`}
                 >
-                  {chat.sender === 'system' && chat.error && <AlertTriangle className="inline mr-2 mb-0.5" size={16} />}
+                  {chat.sender === 'system' && chat.error && <AlertTriangle className="inline mr-2 mb-0.5" size={18} />}
                   {chat.text}
                 </div>
               </div>
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-700 text-slate-200 rounded-lg px-3 py-2 flex items-center">
-                  <Loader2 size={18} className="animate-spin mr-2" />
+                <div className="bg-slate-700 text-slate-200 rounded-lg px-4 py-3 flex items-center text-base">
+                  <Loader2 size={22} className="animate-spin mr-2" />
                   Ava is thinking...
                 </div>
               </div>
@@ -198,27 +198,27 @@ const AskAva: React.FC = () => {
           </div>
           
           {error && !isLoading && (
-             <div className="p-2 px-4 border-t border-slate-700 text-red-400 text-xs">
+             <div className="p-3 px-4 border-t border-slate-700 text-red-400 text-sm">
                 {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="p-4 border-t border-slate-700">
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <input
                 type="text"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder={currentSubnetId ? "Ask about your subnet..." : "Select a subnet first..."}
-                className="flex-1 bg-slate-700 text-slate-100 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+                className="flex-1 bg-slate-700 text-slate-100 rounded-md px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
                 disabled={isLoading || !currentSubnetId}
               />
               <button
                 type="submit"
-                className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors duration-200 disabled:opacity-50"
+                className="bg-red-500 text-white px-5 py-3 rounded-md hover:bg-red-600 transition-colors duration-200 disabled:opacity-50"
                 disabled={isLoading || !message.trim() || !currentSubnetId}
               >
-                {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                {isLoading ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
               </button>
             </div>
           </form>

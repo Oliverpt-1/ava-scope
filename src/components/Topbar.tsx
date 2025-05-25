@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Bell, LogOut, User } from 'lucide-react';
 
@@ -10,8 +11,13 @@ const Topbar: React.FC = () => {
   };
 
   return (
-    <div className="h-16 bg-[var(--bg-secondary)] border-b border-[var(--border-color)] text-[var(--text-primary)] flex items-center justify-between px-4">
-      <div className="flex-1"></div>
+    <div className="h-20 bg-[var(--bg-secondary)] border-b border-[var(--border-color)] text-[var(--text-primary)] flex items-center justify-between px-4">
+      <div className="flex items-center">
+        <Link to="/" className="flex items-center">
+          <img src="/Ava-Scope-Logo.png" alt="AvaScope Logo" className="h-12 w-auto mr-3" />
+          <span className="text-3xl font-semibold">AvaScope</span>
+        </Link>
+      </div>
       
       <div className="flex items-center space-x-4">
         <button className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-full hover:bg-[var(--bg-primary)]">
@@ -25,7 +31,7 @@ const Topbar: React.FC = () => {
           </div>
           
           <div className="relative group">
-            <button className="w-9 h-9 rounded-full bg-[var(--bg-primary)] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors">
+            <button className="w-10 h-10 rounded-full bg-[var(--bg-primary)] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors">
               {user?.avatar_url ? (
                 <img 
                   src={user.avatar_url} 
@@ -33,7 +39,7 @@ const Topbar: React.FC = () => {
                   className="rounded-full w-full h-full object-cover" 
                 />
               ) : (
-                <User size={18} />
+                <User size={20} />
               )}
             </button>
             

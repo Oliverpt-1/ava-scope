@@ -11,7 +11,6 @@ interface SubnetFormProps {
 const SubnetForm: React.FC<SubnetFormProps> = ({ subnet, onSubmit, onCancel }) => {
   const [name, setName] = useState(subnet?.name || '');
   const [rpcUrl, setRpcUrl] = useState(subnet?.rpc_url || '');
-  const [notes, setNotes] = useState(subnet?.notes || '');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
@@ -38,7 +37,6 @@ const SubnetForm: React.FC<SubnetFormProps> = ({ subnet, onSubmit, onCancel }) =
       onSubmit({
         name,
         rpc_url: rpcUrl,
-        notes: notes || undefined,
       });
     }
   };
@@ -70,20 +68,6 @@ const SubnetForm: React.FC<SubnetFormProps> = ({ subnet, onSubmit, onCancel }) =
         error={errors.rpcUrl}
         required
       />
-      
-      <div className="mb-4">
-        <label htmlFor="notes" className="block text-sm font-medium text-slate-300 mb-1">
-          Notes
-        </label>
-        <textarea
-          id="notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional notes about this subnet..."
-          className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 transition duration-200"
-          rows={3}
-        />
-      </div>
       
       <div className="flex justify-end space-x-3 mt-6">
         <button

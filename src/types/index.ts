@@ -20,6 +20,7 @@ export interface MetricCardProps {
   chart?: React.ReactNode;
   tooltipText?: string;
   loading?: boolean;
+  onRefresh?: () => void;
 }
 
 export interface BlockData {

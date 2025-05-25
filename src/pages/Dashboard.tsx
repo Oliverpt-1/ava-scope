@@ -19,6 +19,10 @@ import GasUtilizationHistogram from '../components/metrics/GasUtilizationHistogr
 import MetricCard from '../components/metrics/MetricCard'; // For skeleton
 // NEW: Zustand store to broadcast the selected subnet globally
 import { useAppStore, AppState } from '../store/useAppStore';
+import CrossChainWidget from '../components/metrics/CrossChainWidget';
+import ValidatorCountWidget from '../components/metrics/ValidatorCountWidget';
+import DelegatorCountWidget from '../components/metrics/DelegatorCountWidget';
+import ContractsDeployedWidget from '../components/metrics/ContractsDeployedWidget';
 
 const Dashboard: React.FC = () => {
   const [subnetsLoading, setSubnetsLoading] = useState(true);
@@ -200,6 +204,18 @@ const Dashboard: React.FC = () => {
           {/* Erc721TransfersWidget removed */}
           <div className="col-span-1 md:col-span-2 lg:col-span-4">
             <GasUtilizationHistogram subnetId={selectedSubnet.id} />
+          </div>
+          <div className="col-span-1 md:col-span-1 lg:col-span-1">
+            <CrossChainWidget subnetId={selectedSubnet.id} />
+          </div>
+          <div className="col-span-1 md:col-span-1 lg:col-span-1">
+            <ValidatorCountWidget subnetId={selectedSubnet.id} />
+          </div>
+          <div className="col-span-1 md:col-span-1 lg:col-span-1">
+            <DelegatorCountWidget subnetId={selectedSubnet.id} />
+          </div>
+          <div className="col-span-1 md:col-span-1 lg:col-span-1">
+            <ContractsDeployedWidget subnetId={selectedSubnet.id} />
           </div>
         </div>
       ) : (

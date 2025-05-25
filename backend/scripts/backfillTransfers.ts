@@ -9,10 +9,11 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const AVG_BLOCK_TIME_SECONDS = 5;
-const SECONDS_IN_24_HOURS = 24 * 60 * 60;
+const SECONDS_IN_24_HOURS = 60 * 60;
 const BLOCKS_IN_24_HOURS = Math.floor(SECONDS_IN_24_HOURS / AVG_BLOCK_TIME_SECONDS);
 const BATCH_SIZE = 1000; // Max blocks to fetch logs for in one eth_getLogs call
-const INSERT_BATCH_SIZE = 100; // Max records to insert into Supabase in one go
+const INSERT_BATCH_SIZE = 100; // Max records to insert into Supabase in one go for general metrics
+const ERC_TRANSFER_INSERT_BATCH_SIZE = 20; // More frequent batching for ERC transfers
 
 const TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -454,8 +455,8 @@ async function backfillSubnetTransfers(subnet: SubnetConfig) {
           erc721_transfers: 0,        // As per original script
         });
 
-        if (allErcBlockDataToInsert.length >= INSERT_BATCH_SIZE) {
-          console.log(`[Backfill ERC Transfers] Batching ${allErcBlockDataToInsert.length} records for Supabase insert...`);
+        if (allErcBlockDataToInsert.length >= ERC_TRANSFER_INSERT_BATCH_SIZE) { // Use ERC_TRANSFER_INSERT_BATCH_SIZE here
+          console.log(`[Backfill ERC Transfers] Batching ${allErcBlockDataToInsert.length} records for Supabase insert (ERC specific batch)...`);
           await insertErcTransferCounts(allErcBlockDataToInsert);
           allErcBlockDataToInsert = [];
         }
@@ -475,9 +476,9 @@ async function backfillSubnetTransfers(subnet: SubnetConfig) {
 
 async function main() {
   const exampleSubnet: SubnetConfig = {
-    id: "3e9c1756-d1a4-4157-ab58-1ce127a8e0bf", // Beam Subnet ID from your previous logs
-    name: "Beam (AvaScope Test)",
-    rpcUrl: "https://subnets.avax.network/beam/mainnet/rpc",
+    id: "374877ff-6cd7-4825-9cf3-ba038b480e80", // Beam Subnet ID from your previous logs
+    name: "Gunzilla",
+    rpcUrl: "https://subnets.avax.network/gunzilla/mainnet/rpc",
   };
   
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {

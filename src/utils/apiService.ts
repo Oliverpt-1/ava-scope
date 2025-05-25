@@ -94,4 +94,82 @@ export const fetchBlocktimeSamples = async (subnetId: string, rangeHours: number
     console.error('Network error fetching blocktime samples:', error);
     return { error: 'Network error fetching blocktime samples', details: error.message };
   }
+};
+
+// --- AvaCloud Metrics Fetchers ---
+export const fetchTeleporterMetric = async (
+  chainId: string,
+  metric: 'teleporterSourceTxnCount' | 'teleporterDestinationTxnCount' | 'teleporterTotalTxnCount'
+): Promise<any | ApiServiceError> => {
+  const headers = await getAuthHeader();
+  if (!headers) return { error: 'User not authenticated' };
+
+  try {
+    const url = `${API_BASE_URL}/avacloud/teleporter?chainId=${chainId}&metric=${metric}`;
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      const errData = await response.json();
+      return { error: `Failed to fetch teleporter metric: ${response.status}`, details: errData };
+    }
+    return await response.json();
+  } catch (error: any) {
+    console.error('Network error fetching teleporter metric:', error);
+    return { error: 'Network error fetching teleporter metric', details: error.message };
+  }
+};
+
+export const fetchStakingMetric = async (
+  network: 'mainnet' | 'fuji' | 'testnet',
+  metric: 'delegatorCount' | 'delegatorWeight' | 'validatorCount' | 'validatorWeight',
+  options?: { startTimestamp?: number; endTimestamp?: number; subnetId?: string }
+): Promise<any | ApiServiceError> => {
+  const headers = await getAuthHeader();
+  if (!headers) return { error: 'User not authenticated' };
+
+  const params = new URLSearchParams({ network, metric });
+  if (options?.startTimestamp) params.append('startTimestamp', options.startTimestamp.toString());
+  if (options?.endTimestamp) params.append('endTimestamp', options.endTimestamp.toString());
+  if (options?.subnetId) params.append('subnetId', options.subnetId);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/avacloud/staking?${params.toString()}`, { headers });
+    if (!response.ok) {
+      const errData = await response.json();
+      return { error: `Failed to fetch staking metric: ${response.status}`, details: errData };
+    }
+    return await response.json();
+  } catch (error: any) {
+    console.error('Network error fetching staking metric:', error);
+    return { error: 'Network error fetching staking metric', details: error.message };
+  }
+};
+
+export const fetchChainMetric = async (
+  chainId: string,
+  metric: string,
+  options?: {
+    startTimestamp?: number;
+    endTimestamp?: number;
+    timeInterval?: 'hour' | 'day' | 'week' | 'month';
+  }
+): Promise<any | ApiServiceError> => {
+  const headers = await getAuthHeader();
+  if (!headers) return { error: 'User not authenticated' };
+
+  const params = new URLSearchParams({ chainId, metric });
+  if (options?.startTimestamp) params.append('startTimestamp', options.startTimestamp.toString());
+  if (options?.endTimestamp) params.append('endTimestamp', options.endTimestamp.toString());
+  if (options?.timeInterval) params.append('timeInterval', options.timeInterval);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/avacloud/chain?${params.toString()}`, { headers });
+    if (!response.ok) {
+      const errData = await response.json();
+      return { error: `Failed to fetch chain metric: ${response.status}`, details: errData };
+    }
+    return await response.json();
+  } catch (error: any) {
+    console.error('Network error fetching chain metric:', error);
+    return { error: 'Network error fetching chain metric', details: error.message };
+  }
 }; 

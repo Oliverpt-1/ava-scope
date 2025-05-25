@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MetricCardProps } from '../../types';
-import { Info } from 'lucide-react';
+import { Info, RefreshCw } from 'lucide-react';
 
 const MetricCard: React.FC<MetricCardProps> = ({
   title,
@@ -10,6 +10,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   chart,
   tooltipText,
   loading = false,
+  onRefresh,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
 
@@ -46,7 +47,18 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 </div>
               )}
             </h3>
-            <div className="text-red-500">{icon}</div>
+            <div className="flex items-center">
+              {onRefresh && (
+                <button 
+                  onClick={onRefresh}
+                  className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors mr-2 p-1 rounded-full hover:bg-[var(--bg-primary)]"
+                  aria-label="Refresh data"
+                >
+                  <RefreshCw size={16} />
+                </button>
+              )}
+              <div className="text-red-500">{icon}</div>
+            </div>
           </div>
           
           <div className="flex items-baseline mb-4">

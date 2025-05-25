@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import subnetRoutes from './api/subnets';
 import metricsRoutes from './api/metrics';
 import askAvaRoutes from './api/askAva';
+import avaCloudMetricsRoutes from './api/avaCloudMetrics';
 import { authMiddleware } from './middleware/authMiddleware';
 
 dotenv.config();
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use('/api/subnets', authMiddleware, subnetRoutes);
 app.use('/api/metrics', authMiddleware, metricsRoutes);
 app.use('/api/ask-ava', authMiddleware, askAvaRoutes);
+app.use('/api/avacloud', authMiddleware, avaCloudMetricsRoutes);
 
 app.get('/', (req, res) => {
   res.send('AvaScope API is running!');
